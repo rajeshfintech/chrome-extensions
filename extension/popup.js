@@ -3,6 +3,10 @@ function fmtTime(ts) {
   return new Date(ts).toLocaleTimeString();
 }
 
+function setStatus(text) {
+  document.getElementById('status').textContent = text;
+}
+
 function renderGroups(names) {
   const el = document.getElementById('groups');
   if (!names || names.length === 0) {
@@ -18,24 +22,46 @@ function refresh() {
   chrome.runtime.sendMessage({ type: 'get_status' }, (data) => {
     if (chrome.runtime.lastError || !data) return;
     renderGroups(data.groupNames);
-    document.getElementById('status').textContent =
-      `Config loaded: ${fmtTime(data.configLoadedAt)} · ${data.groupCount || 0} group(s)`;
+    setStatus(`Config loaded: ${fmtTime(data.configLoadedAt)} · ${data.groupCount || 0} group(s)`);
   });
 }
 
+function withButtonBusy(btn, busyText, fn) {
+  const original = btn.textContent;
+  btn.textContent = busyText;
+  btn.disabled = true;
+  fn(() => {
+    btn.textContent = original;
+    btn.disabled = false;
+  });
+}
+
+document.getElementById('groupAllBtn').addEventListener('click', () => {
+  const btn = document.getElementById('groupAllBtn');
+  withButtonBusy(btn, 'Grouping…', (done) => {
+    chrome.runtime.sendMessage({ type: 'group_all_now' }, (res) => {
+      done();
+      if (res && res.success) {
+        const n = res.movedCount || 0;
+        setStatus(n === 0
+          ? 'Already grouped — no tabs to move'
+          : `Grouped ${n} tab${n === 1 ? '' : 's'} at ${fmtTime(Date.now())}`);
+      }
+    });
+  });
+});
+
 document.getElementById('reloadBtn').addEventListener('click', () => {
   const btn = document.getElementById('reloadBtn');
-  btn.textContent = 'Reloading…';
-  btn.disabled = true;
-
-  chrome.runtime.sendMessage({ type: 'reload_config' }, (res) => {
-    btn.textContent = 'Reload Config';
-    btn.disabled = false;
-    if (res && res.success) {
-      document.getElementById('status').textContent =
-        `Reloaded at ${fmtTime(Date.now())} · ${res.groupCount} group(s)`;
-      refresh();
-    }
+  withButtonBusy(btn, 'Reloading…', (done) => {
+    chrome.runtime.sendMessage({ type: 'reload_config' }, (res) => {
+      done();
+      if (res && res.success) {
+        const moved = res.movedCount || 0;
+        setStatus(`Reloaded · ${res.groupCount} group(s) · ${moved} tab${moved === 1 ? '' : 's'} regrouped`);
+        refresh();
+      }
+    });
   });
 });
 

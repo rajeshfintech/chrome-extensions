@@ -48,8 +48,11 @@
       font-size: 13px;
       font-weight: 500;
     }
+    button + button { margin-top: 6px; }
+    button.secondary { background: #fff; color: #1a73e8; border: 1px solid #dadce0; }
+    button.secondary:hover { background: #f1f3f4; }
     button:hover { background: #1557b0; }
-    button:disabled { background: #9aa0a6; cursor: default; }
+    button:disabled { background: #9aa0a6; cursor: default; color: #fff; border-color: transparent; }
     #status { color: #5f6368; font-size: 11px; margin-top: 8px; text-align: center; }
   </style>
 </head>
@@ -61,7 +64,8 @@
 
   <div id="groups"><div class="empty">Loading…</div></div>
 
-  <button id="reloadBtn">Reload Config</button>
+  <button id="groupAllBtn">Group all open tabs</button>
+  <button id="reloadBtn" class="secondary">Reload Config</button>
   <div id="status"></div>
 
   <script src="popup.js"></script>
