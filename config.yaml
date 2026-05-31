@@ -1,0 +1,64 @@
+# Tab Auto Grouper — configuration
+# Edit this file, then run:  tabgroups sync
+#
+# Colors: grey | blue | red | yellow | green | pink | purple | cyan
+#
+# Rule types (used in both `groups` and `exclude`):
+#   domain: matches hostname and all subdomains  (e.g. github.com → github.com, api.github.com)
+#   path:   matches hostname + path prefix        (e.g. docs.google.com/spreadsheets)
+
+version: 1
+
+# Tabs matching ANY rule here are never grouped, regardless of `groups` below.
+# Add domains/paths you open from your bookmarks bar or want left ungrouped.
+exclude:
+  # - domain: example.com
+  # - path: docs.google.com/spreadsheets/d/my-specific-sheet
+
+groups:
+  - name: "Work"
+    color: blue
+    collapsed: false
+    rules:
+      - domain: github.com
+      - domain: gitlab.com
+      - domain: jira.atlassian.net
+      - domain: confluence.atlassian.net
+      - domain: linear.app
+
+  - name: "Google"
+    color: red
+    collapsed: false
+    rules:
+      - domain: google.com
+      - domain: gmail.com
+      - domain: calendar.google.com
+      - path: docs.google.com/spreadsheets
+      - path: docs.google.com/document
+      - path: docs.google.com/presentation
+      - domain: drive.google.com
+
+  - name: "Social"
+    color: pink
+    collapsed: false
+    rules:
+      - domain: twitter.com
+      - domain: x.com
+      - domain: linkedin.com
+      - domain: reddit.com
+
+  - name: "Shopping"
+    color: yellow
+    collapsed: true
+    rules:
+      - domain: amazon.com
+      - domain: ebay.com
+
+  - name: "AI"
+    color: purple
+    collapsed: false
+    rules:
+      - domain: claude.ai
+      - domain: chat.openai.com
+      - domain: gemini.google.com
+      - domain: perplexity.ai
