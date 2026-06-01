@@ -90,6 +90,11 @@ async function processTab(tab) {
       const existingGroup = existing.find(g => g.title === match.name);
 
       if (existingGroup) {
+        const desiredColor = VALID_COLORS.has(match.color) ? match.color : 'grey';
+        if (existingGroup.color !== desiredColor) {
+          try { await chrome.tabGroups.update(existingGroup.id, { color: desiredColor }); }
+          catch (e) { console.warn('[TabGrouper] Recolor failed:', e.message); }
+        }
         if (tab.groupId === existingGroup.id) return;
         await chrome.tabs.group({ tabIds: [tab.id], groupId: existingGroup.id });
       } else {
@@ -173,6 +178,11 @@ async function processAllTabsInWindow(windowId, config) {
     try {
       const existingGroup = existingGroups.find(g => g.title === name);
       if (existingGroup) {
+        const desiredColor = VALID_COLORS.has(group.color) ? group.color : 'grey';
+        if (existingGroup.color !== desiredColor) {
+          try { await chrome.tabGroups.update(existingGroup.id, { color: desiredColor }); }
+          catch (e) { console.warn(`[TabGrouper] Failed to recolor "${name}":`, e.message); }
+        }
         const idsToMove = entries
           .filter(e => e.groupId !== existingGroup.id)
           .map(e => e.id);
