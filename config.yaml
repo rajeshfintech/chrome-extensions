@@ -1,7 +1,9 @@
 # Tab Auto Grouper — configuration
 # Edit this file, then run:  tabgroups sync
 #
-# Colors: grey | blue | red | yellow | green | pink | purple | cyan
+# Colors: grey | blue | red | yellow | green | pink | purple | cyan | orange
+# (These 9 are the only colors Chrome's tab-group API supports — others are
+#  rejected by the browser and fall back to grey.)
 #
 # Rule types (used in both `groups` and `exclude`):
 #   domain: matches hostname and all subdomains  (e.g. github.com → github.com, api.github.com)

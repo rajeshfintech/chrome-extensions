@@ -1,7 +1,9 @@
 // Tab Auto Grouper - background service worker
 // Reads config.json (generated from config.yaml via CLI) and groups tabs by URL rules.
 
-const VALID_COLORS = new Set(['grey', 'blue', 'red', 'yellow', 'green', 'pink', 'purple', 'cyan']);
+// The 9 colors Chrome's tabGroups API accepts. Any other value is rejected
+// by the browser, so we fall back to 'grey' when a config color is unknown.
+const VALID_COLORS = new Set(['grey', 'blue', 'red', 'yellow', 'green', 'pink', 'purple', 'cyan', 'orange']);
 const CONFIG_TTL_MS = 5000; // re-read config.json at most every 5s
 
 let configCache = null;
