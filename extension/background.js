@@ -69,58 +69,103 @@ function matchTab(url, groups, excludes) {
   return null;
 }
 
+function configuredGroupNames(config) {
+  return new Set((config.groups || []).map(g => g.name));
+}
+
+const TAB_GROUP_ID_NONE = chrome.tabGroups?.TAB_GROUP_ID_NONE ?? -1;
+
 async function processTab(tab) {
   if (!tab || !tab.id || !isGroupableUrl(tab.url)) return;
 
   const config = await loadConfig();
   const match = matchTab(tab.url, config.groups || [], config.exclude || []);
-  if (!match) return;
 
+  // Case 1: URL matches a configured group → make sure the tab lives in it.
+  if (match) {
+    try {
+      const existing = await chrome.tabGroups.query({ windowId: tab.windowId });
+      const existingGroup = existing.find(g => g.title === match.name);
+
+      if (existingGroup) {
+        if (tab.groupId === existingGroup.id) return;
+        await chrome.tabs.group({ tabIds: [tab.id], groupId: existingGroup.id });
+      } else {
+        const color = VALID_COLORS.has(match.color) ? match.color : 'grey';
+        const groupId = await chrome.tabs.group({ tabIds: [tab.id] });
+        await chrome.tabGroups.update(groupId, {
+          title: match.name,
+          color,
+          collapsed: match.collapsed === true
+        });
+      }
+    } catch (err) {
+      console.warn('[TabGrouper] Could not group tab:', err.message);
+    }
+    return;
+  }
+
+  // Case 2: URL no longer matches anything. Evict ONLY if the tab is sitting
+  // in one of our managed groups (matches a configured group name). Tabs in
+  // user-created groups with unrelated names are left alone — never blow
+  // away manual grouping the user did themselves.
+  if (!tab.groupId || tab.groupId === TAB_GROUP_ID_NONE) return;
   try {
-    const existing = await chrome.tabGroups.query({ windowId: tab.windowId });
-    const existingGroup = existing.find(g => g.title === match.name);
-
-    if (existingGroup) {
-      if (tab.groupId === existingGroup.id) return; // already correctly grouped
-      await chrome.tabs.group({ tabIds: [tab.id], groupId: existingGroup.id });
-    } else {
-      const color = VALID_COLORS.has(match.color) ? match.color : 'grey';
-      const groupId = await chrome.tabs.group({ tabIds: [tab.id] });
-      await chrome.tabGroups.update(groupId, {
-        title: match.name,
-        color,
-        collapsed: match.collapsed === true
-      });
+    const currentGroup = (await chrome.tabGroups.query({ windowId: tab.windowId }))
+      .find(g => g.id === tab.groupId);
+    if (!currentGroup) return;
+    if (configuredGroupNames(config).has(currentGroup.title)) {
+      await chrome.tabs.ungroup([tab.id]);
     }
   } catch (err) {
-    // Tab may have been closed or moved between windows; not a fatal error
-    console.warn('[TabGrouper] Could not group tab:', err.message);
+    console.warn('[TabGrouper] Could not evict stale tab:', err.message);
   }
 }
 
-// Bulk pass: walk every tab in a window and fold matching tabs into their
-// target groups, regardless of current position or current group membership.
-// Chrome's tabs.group() will move non-adjacent tabs next to the group for us.
+// Bulk pass: walk every tab in a window. Returns count of tabs that were
+// either moved into a group or evicted from a stale managed group.
 async function processAllTabsInWindow(windowId, config) {
   const tabs = await chrome.tabs.query({ windowId });
   const groups = config.groups || [];
   const excludes = config.exclude || [];
+  const managedNames = configuredGroupNames(config);
+
+  let existingGroups = await chrome.tabGroups.query({ windowId });
+  const groupIdToTitle = new Map(existingGroups.map(g => [g.id, g.title]));
 
   // Map<groupName, { entries: [{id, groupId}], group }>
   const targets = new Map();
+  const toEvict = [];
+
   for (const tab of tabs) {
     if (!isGroupableUrl(tab.url)) continue;
     const match = matchTab(tab.url, groups, excludes);
-    if (!match) continue;
-    if (!targets.has(match.name)) {
-      targets.set(match.name, { entries: [], group: match });
-    }
-    targets.get(match.name).entries.push({ id: tab.id, groupId: tab.groupId });
-  }
-  if (targets.size === 0) return 0;
 
-  const existingGroups = await chrome.tabGroups.query({ windowId });
-  let moved = 0;
+    if (match) {
+      if (!targets.has(match.name)) {
+        targets.set(match.name, { entries: [], group: match });
+      }
+      targets.get(match.name).entries.push({ id: tab.id, groupId: tab.groupId });
+    } else if (tab.groupId && tab.groupId !== TAB_GROUP_ID_NONE) {
+      const title = groupIdToTitle.get(tab.groupId);
+      if (title && managedNames.has(title)) {
+        toEvict.push(tab.id);
+      }
+    }
+  }
+
+  let touched = 0;
+
+  if (toEvict.length) {
+    try {
+      await chrome.tabs.ungroup(toEvict);
+      touched += toEvict.length;
+      // Re-query: Chrome auto-removes groups that became empty.
+      existingGroups = await chrome.tabGroups.query({ windowId });
+    } catch (err) {
+      console.warn('[TabGrouper] Failed to ungroup stale tabs:', err.message);
+    }
+  }
 
   for (const [name, { entries, group }] of targets) {
     try {
@@ -131,7 +176,7 @@ async function processAllTabsInWindow(windowId, config) {
           .map(e => e.id);
         if (idsToMove.length) {
           await chrome.tabs.group({ tabIds: idsToMove, groupId: existingGroup.id });
-          moved += idsToMove.length;
+          touched += idsToMove.length;
         }
       } else {
         const ids = entries.map(e => e.id);
@@ -142,13 +187,13 @@ async function processAllTabsInWindow(windowId, config) {
           color,
           collapsed: group.collapsed === true
         });
-        moved += ids.length;
+        touched += ids.length;
       }
     } catch (err) {
       console.warn(`[TabGrouper] Failed to group "${name}":`, err.message);
     }
   }
-  return moved;
+  return touched;
 }
 
 async function processAllTabs() {
@@ -161,12 +206,14 @@ async function processAllTabs() {
   return total;
 }
 
+// Fires on full page load AND on SPA URL changes (pushState/replaceState).
+// The latter is important: a Single-Page App can navigate from a matching
+// URL to a non-matching one without ever firing status='complete'.
 chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
-  if (changeInfo.status === 'complete') processTab(tab);
+  if (changeInfo.status === 'complete' || changeInfo.url) processTab(tab);
 });
 
 chrome.tabs.onCreated.addListener((tab) => {
-  // Wait briefly for the URL to populate after creation
   setTimeout(() => {
     chrome.tabs.get(tab.id, (t) => {
       if (!chrome.runtime.lastError && t) processTab(t);
@@ -177,18 +224,18 @@ chrome.tabs.onCreated.addListener((tab) => {
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   if (msg.type === 'reload_config') {
     loadConfig(true).then(async (config) => {
-      const moved = await processAllTabs();
+      const touched = await processAllTabs();
       sendResponse({
         success: true,
         groupCount: (config.groups || []).length,
-        movedCount: moved
+        movedCount: touched
       });
     });
     return true;
   }
   if (msg.type === 'group_all_now') {
-    processAllTabs().then(moved => {
-      sendResponse({ success: true, movedCount: moved });
+    processAllTabs().then(touched => {
+      sendResponse({ success: true, movedCount: touched });
     });
     return true;
   }
@@ -200,11 +247,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   }
 });
 
-// Group any already-open tabs when the extension is installed/updated or
-// when Chrome starts up — without this, pre-existing tabs are invisible
-// to the per-tab listeners above.
 chrome.runtime.onInstalled.addListener(() => { processAllTabs(); });
 chrome.runtime.onStartup.addListener(() => { processAllTabs(); });
 
-// Eager load on service-worker wake-up
 loadConfig(true);
