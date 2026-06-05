@@ -18,6 +18,7 @@ import os
 import shutil
 import subprocess
 import sys
+import time
 from datetime import datetime
 from pathlib import Path
 
@@ -92,6 +93,16 @@ def get_profiles():
     return profiles
 
 
+CHROME_BINARY = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
+
+def open_chrome_for_profile(folder):
+    """Open chrome://extensions in a specific Chrome profile."""
+    if Path(CHROME_BINARY).exists():
+        subprocess.Popen([CHROME_BINARY, f'--profile-directory={folder}', 'chrome://extensions'])
+    else:
+        # Fallback if Chrome is not in the default location
+        subprocess.run(['open', '-a', 'Google Chrome', 'chrome://extensions'], check=False)
+
 def open_chrome_extensions():
     subprocess.run(['open', '-a', 'Google Chrome', 'chrome://extensions'], check=False)
 
@@ -154,25 +165,21 @@ def cmd_install(args):
     else:
         targets = all_profiles
 
-    print(f'\n  Target profile(s):')
-    for p in targets:
-        print(f'    {p["folder"]:16}  ({p["name"]})')
-
+    print(f'\n  Target profile(s): {len(targets)} found')
     print(f"""
   ── One-time setup per profile ───────────────────────────────────────────
-  For EACH profile listed above:
-
-    1. Open Google Chrome with that profile active
-    2. Navigate to:  chrome://extensions
-    3. Enable  "Developer mode"  (top-right toggle)
-    4. Click   "Load unpacked"
-    5. Select:  {INSTALLED_EXT}
-  ─────────────────────────────────────────────────────────────────────────
-
+    1. Enable  "Developer mode"  (top-right toggle)
+    2. Click   "Load unpacked"
+    3. Select:  {INSTALLED_EXT}
   Chrome remembers the extension across restarts once loaded.
-  Opening extensions page now…
+  ─────────────────────────────────────────────────────────────────────────
 """)
-    open_chrome_extensions()
+
+    for i, p in enumerate(targets):
+        print(f'  [{i+1}/{len(targets)}] Opening Chrome — {p["name"]}  ({p["folder"]})')
+        open_chrome_for_profile(p['folder'])
+        if i < len(targets) - 1:
+            time.sleep(1)   # brief pause so Chrome finishes opening each window
 
 
 def cmd_remove(_args):
