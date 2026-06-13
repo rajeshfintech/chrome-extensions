@@ -76,6 +76,50 @@ async function refresh() {
   renderTabs();
 }
 
+function setStatus(text) {
+  document.getElementById('status').textContent = text;
+}
+
+function renderManualList(patterns) {
+  const el = document.getElementById('manual-list');
+  if (!patterns || patterns.length === 0) {
+    el.innerHTML = '<div class="empty">No manual links</div>';
+    return;
+  }
+  el.innerHTML = patterns.map(p => `
+    <div class="manual-item">
+      <span class="manual-match" title="${esc(p.match)}">${esc(p.match)}</span>
+      <button class="remove-btn" data-match="${esc(p.match)}" title="Remove">&times;</button>
+    </div>`).join('');
+
+  el.querySelectorAll('.remove-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      btn.disabled = true;
+      const res = await chrome.runtime.sendMessage({ type: 'remove_manual_pattern', match: btn.dataset.match });
+      renderManualList(res?.patterns || []);
+      await refresh();
+      setStatus('Link removed from watch list');
+    });
+  });
+}
+
+async function refreshManualList() {
+  const res = await chrome.runtime.sendMessage({ type: 'get_manual_patterns' });
+  renderManualList(res?.patterns || []);
+}
+
+async function addPattern(match, name) {
+  const res = await chrome.runtime.sendMessage({ type: 'add_manual_pattern', match, name });
+  if (res?.ok) {
+    renderManualList(res.patterns);
+    await refresh();
+    setStatus('Link added — matching tabs are now on the timer');
+  } else {
+    setStatus(res?.error || 'Could not add link');
+  }
+  return res?.ok;
+}
+
 document.getElementById('cancelAllBtn').addEventListener('click', async () => {
   const btn = document.getElementById('cancelAllBtn');
   btn.textContent = 'Cancelling…';
@@ -100,6 +144,28 @@ document.getElementById('reloadBtn').addEventListener('click', async () => {
   }
 });
 
+document.getElementById('addPatternBtn').addEventListener('click', async () => {
+  const input = document.getElementById('patternInput');
+  if (await addPattern(input.value)) input.value = '';
+});
+
+document.getElementById('patternInput').addEventListener('keydown', async (e) => {
+  if (e.key === 'Enter') {
+    const input = document.getElementById('patternInput');
+    if (await addPattern(input.value)) input.value = '';
+  }
+});
+
+document.getElementById('addCurrentBtn').addEventListener('click', async () => {
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  if (!tab?.url || !/^https?:/i.test(tab.url)) {
+    setStatus('Current tab has no watchable URL');
+    return;
+  }
+  const u = new URL(tab.url);
+  await addPattern(u.hostname + u.pathname, u.hostname);
+});
+
 // Initial load
 refresh().then(() => {
   chrome.runtime.sendMessage({ type: 'reload_config' }, res => {
@@ -108,6 +174,8 @@ refresh().then(() => {
     }
   });
 });
+
+refreshManualList();
 
 // Refresh pending list every 5s, tick countdowns every second
 setInterval(refresh, 5000);

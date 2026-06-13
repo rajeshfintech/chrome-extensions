@@ -25,7 +25,7 @@ tabgroups sync           # apply config changes to the extension
 
 ### `auto-tab-closer`
 
-Automatically closes Chrome tabs that have been logged out (AWS, Google, GitHub, Microsoft, Slack, etc.). Detects the redirect to a login page and starts a 10-minute idle timer. Focusing the tab resets the timer; navigating away (e.g. after re-logging in) cancels it.
+Automatically closes Chrome tabs that have been logged out (AWS, Google, GitHub, Microsoft, Slack, etc.). Detects the redirect to a login page and starts a 10-minute idle timer. Focusing the tab resets the timer; navigating away (e.g. after re-logging in) cancels it. You can also manually watch any link from the popup — matching tabs are closed after the same idle timeout.
 
 ```bash
 brew install rajeshfintech/tools/auto-tab-closer
@@ -169,6 +169,20 @@ Tab navigates to a login page
          ▼
       Tab is closed
 ```
+
+### Manual watch list
+
+Besides the built-in login-page detection, you can watch any link from the toolbar popup:
+
+- **+ Watch current tab** — adds the active tab's URL (hostname + path) to the watch list
+- **Add** — type any URL substring (e.g. `example.com/dashboard`) and add it
+
+Tabs matching a watched link go on the same idle timer as login pages — open tabs are
+scanned immediately when you add a link. Remove a link with the **×** button; any tabs
+that were pending only because of that link are taken off the timer.
+
+The watch list is stored in the extension's own storage (`chrome.storage.local`), so it
+survives `tabclose sync`, config reloads, and `brew upgrade`.
 
 ### Permissions
 

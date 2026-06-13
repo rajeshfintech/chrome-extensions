@@ -110,6 +110,86 @@
     button.secondary:hover { background: #e2e4e7; }
 
     #status { color: #5f6368; font-size: 11px; margin-top: 8px; text-align: center; }
+
+    .section-title {
+      font-size: 11px;
+      font-weight: 600;
+      color: #5f6368;
+      text-transform: uppercase;
+      letter-spacing: 0.4px;
+      margin: 12px 0 6px;
+      border-top: 1px solid #e8eaed;
+      padding-top: 10px;
+    }
+    #manual-list { max-height: 120px; overflow-y: auto; }
+    .manual-item {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 8px;
+      margin: 3px 0;
+      border-radius: 6px;
+      background: #f8f9fa;
+      border: 1px solid #e8eaed;
+    }
+    .manual-match {
+      flex: 1;
+      min-width: 0;
+      font-size: 11px;
+      color: #202124;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .remove-btn {
+      background: none;
+      border: none;
+      cursor: pointer;
+      color: #9aa0a6;
+      font-size: 14px;
+      line-height: 1;
+      padding: 2px 4px;
+      flex-shrink: 0;
+    }
+    .remove-btn:hover { color: #dc2626; }
+
+    .add-row {
+      display: flex;
+      gap: 6px;
+      margin-top: 6px;
+    }
+    .add-row input {
+      flex: 1;
+      min-width: 0;
+      padding: 6px 8px;
+      border: 1px solid #dadce0;
+      border-radius: 4px;
+      font-size: 12px;
+    }
+    .add-row input:focus { outline: none; border-color: #ea580c; }
+    .add-row button {
+      padding: 6px 10px;
+      background: #ea580c;
+      color: #fff;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 12px;
+      flex-shrink: 0;
+    }
+    .add-row button:hover { background: #c2410c; }
+    #addCurrentBtn {
+      width: 100%;
+      margin-top: 6px;
+      padding: 6px 10px;
+      background: #f1f3f4;
+      color: #202124;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 12px;
+    }
+    #addCurrentBtn:hover { background: #e2e4e7; }
   </style>
 </head>
 <body>
@@ -125,6 +205,15 @@
     <button id="cancelAllBtn" class="primary">Cancel All</button>
     <button id="reloadBtn" class="secondary">Reload Config</button>
   </div>
+
+  <div class="section-title">Watched links</div>
+  <div id="manual-list"><div class="empty">No manual links</div></div>
+  <div class="add-row">
+    <input id="patternInput" type="text" placeholder="e.g. example.com/dashboard">
+    <button id="addPatternBtn">Add</button>
+  </div>
+  <button id="addCurrentBtn">+ Watch current tab</button>
+
   <div id="status"></div>
 
   <script src="popup.js"></script>

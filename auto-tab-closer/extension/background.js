@@ -29,6 +29,35 @@ function matchPattern(url, patterns) {
   return null;
 }
 
+// User-added patterns live in chrome.storage so they survive config syncs and upgrades
+async function getManualPatterns() {
+  const { manualPatterns = [] } = await chrome.storage.local.get('manualPatterns');
+  return manualPatterns;
+}
+
+async function getAllPatterns() {
+  const config = await loadConfig();
+  const manual = await getManualPatterns();
+  return [...(config.patterns || []), ...manual];
+}
+
+// Re-evaluate every open tab against the current pattern set.
+// Schedules newly-matching tabs; cancels pending tabs that no longer match.
+async function rescanTabs() {
+  const patterns = await getAllPatterns();
+  const tabs = await chrome.tabs.query({});
+  const pending = await getPending();
+  for (const tab of tabs) {
+    if (!tab.id || !tab.url) continue;
+    const match = matchPattern(tab.url, patterns);
+    if (match && !pending[tab.id]) {
+      await scheduleClose(tab.id, match, tab.url);
+    } else if (!match && pending[tab.id]) {
+      await cancelClose(tab.id, 'no longer matches any pattern');
+    }
+  }
+}
+
 async function getPending() {
   const { pending = {} } = await chrome.storage.local.get('pending');
   return pending;
@@ -79,8 +108,7 @@ async function cancelClose(tabId, reason) {
 // Tab finished loading — check if it's a login page
 chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
   if (changeInfo.status !== 'complete' || !tab.url) return;
-  const config = await loadConfig();
-  const match = matchPattern(tab.url, config.patterns || []);
+  const match = matchPattern(tab.url, await getAllPatterns());
   if (match) {
     await scheduleClose(tabId, match, tab.url);
   } else {
@@ -150,6 +178,42 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   }
   if (msg.type === 'reload_config') {
     loadConfig(true).then(config => sendResponse({ ok: true, idleMin: config.idle_minutes }));
+    return true;
+  }
+  if (msg.type === 'get_manual_patterns') {
+    getManualPatterns().then(patterns => sendResponse({ ok: true, patterns }));
+    return true;
+  }
+  if (msg.type === 'add_manual_pattern') {
+    (async () => {
+      // Strip scheme so "https://example.com/x" and "example.com/x" behave the same
+      const match = String(msg.match || '').trim().replace(/^https?:\/\//i, '');
+      if (!match) {
+        sendResponse({ ok: false, error: 'Pattern is empty' });
+        return;
+      }
+      const manual = await getManualPatterns();
+      if (manual.some(p => p.match.toLowerCase() === match.toLowerCase())) {
+        sendResponse({ ok: false, error: 'Already in the list' });
+        return;
+      }
+      const name = String(msg.name || '').trim() || match.split('/')[0];
+      manual.push({ name, match });
+      await chrome.storage.local.set({ manualPatterns: manual });
+      await rescanTabs();
+      console.log(`[AutoClose] Added manual pattern: ${match}`);
+      sendResponse({ ok: true, patterns: manual });
+    })();
+    return true;
+  }
+  if (msg.type === 'remove_manual_pattern') {
+    (async () => {
+      const manual = (await getManualPatterns()).filter(p => p.match !== msg.match);
+      await chrome.storage.local.set({ manualPatterns: manual });
+      await rescanTabs();
+      console.log(`[AutoClose] Removed manual pattern: ${msg.match}`);
+      sendResponse({ ok: true, patterns: manual });
+    })();
     return true;
   }
 });
