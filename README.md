@@ -43,11 +43,11 @@ tabclose sync            # validate + push config changes to the extension
 1. Open Chrome with that profile active
 2. Go to `chrome://extensions`
 3. Enable **Developer mode** (toggle, top-right)
-4. Click **Load unpacked**, press **Cmd+Shift+G**, paste the folder for the extension, press Enter, then click **Select**:
+4. Click **Load unpacked**, press **Cmd+Shift+G** (macOS "Go to folder"), paste the folder for the extension, press Enter, then click **Select**:
 
 | Extension | Folder to load |
 |---|---|
-| Tab Auto Grouper | `~/Library/Application Support/chrome-tab-grouper/extension` |
+| Tab Auto Grouper | `~/Library/Application Support/chrome-tab-grouper/extension` (note: `chrome-tab-grouper`, not the formula name `tab-auto-grouper`) |
 | Auto Tab Closer | `~/Library/Application Support/auto-tab-closer/extension` |
 
 Each extension is loaded separately: loading Tab Auto Grouper does not add Auto Tab Closer. `~/Library` is hidden in the macOS file picker, which is why Cmd+Shift+G is the easy way in. `tabgroups status` / `tabclose status` print the same folder.
@@ -232,7 +232,7 @@ Every browser start wipes stale timers and rescans open tabs, because Chrome reu
 | `~/Library/Application Support/auto-tab-closer/` | **Never touched** |
 | Rules and watched links added from the popups | **Never touched** (extension storage) |
 
-After upgrading either extension, run `tabgroups install` / `tabclose install` to refresh the extension files, then reload in Chrome.
+After upgrading either extension, run `tabgroups install` / `tabclose install` to refresh the extension files. From v1.2.1 the extensions reload themselves; see [One-time Chrome setup](#one-time-chrome-setup-per-profile) for the first load and for upgrading from 1.2.0 or older.
 
 ---
 
