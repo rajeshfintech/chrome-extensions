@@ -6,7 +6,8 @@
 // extension is reloaded. After `tabgroups install` / `tabclose install` that
 // leaves a new popup talking to an old worker. The worker calls
 // reloadIfUpdatedOnDisk() whenever it re-reads its config; when manifest.json
-// on disk carries a different version from the one running, it reloads itself.
+// on disk carries a different version from the one running (newer or older,
+// e.g. a downgrade), it reloads itself.
 
 const GUARD_KEY = 'lastSelfReloadAt';
 const GUARD_MS = 60_000; // never reload more than once a minute

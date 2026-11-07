@@ -161,6 +161,7 @@ async function refresh(force = false) {
   if (actionsInFlight > 0) return;
   const res = await send({ type: 'get_state' });
   if (isStaleWorkerReply(res, 'ok')) { showReloadBanner(); return; }
+  hideReloadBanner();
   if (!res.ok || actionsInFlight > 0) return;
   const fingerprint = JSON.stringify(res);
   if (!force && fingerprint === lastRendered) return;
@@ -246,6 +247,9 @@ document.getElementById('clearRecentBtn').addEventListener('click', () => action
 // install): offer a one-click reload instead of showing empty data.
 function showReloadBanner() {
   document.getElementById('reload-banner').hidden = false;
+}
+function hideReloadBanner() {
+  document.getElementById('reload-banner').hidden = true;
 }
 document.getElementById('selfReloadBtn').addEventListener('click', () => {
   chrome.runtime.reload();

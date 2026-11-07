@@ -111,6 +111,7 @@ function renderManualRules() {
 async function refresh() {
   const res = await send({ type: 'get_status' });
   if (isStaleWorkerReply(res, 'groups')) { showReloadBanner(); return; }
+  hideReloadBanner();
   if (res.success === false) { setStatus(res.error || 'Could not read status'); return; }
   status = res;
   await renderGroups();
@@ -192,6 +193,9 @@ document.getElementById('snapshotBtn').addEventListener('click', () => {
 // install): offer a one-click reload instead of showing empty data.
 function showReloadBanner() {
   document.getElementById('reload-banner').hidden = false;
+}
+function hideReloadBanner() {
+  document.getElementById('reload-banner').hidden = true;
 }
 document.getElementById('selfReloadBtn').addEventListener('click', () => {
   chrome.runtime.reload();

@@ -28,7 +28,7 @@ async function loadConfig(force = false) {
     configCache = { ...DEFAULTS, ...(await resp.json()) };
     configLoadedAt = now;
     // `tabclose install` replaced the extension files: pick up the new code.
-    if (await reloadIfUpdatedOnDisk('AutoClose')) return configCache;
+    await reloadIfUpdatedOnDisk('AutoClose');
     return configCache;
   } catch (err) {
     console.error('[AutoClose] Failed to load config:', err);

@@ -18,6 +18,58 @@ for (const shared of ['rules.js', 'self-update.js']) {
   });
 }
 
+async function freshSelfUpdate({ onDisk, running, lastSelfReloadAt = 0 }) {
+  const store = { lastSelfReloadAt };
+  const calls = { reload: 0 };
+  globalThis.chrome = {
+    runtime: {
+      getURL: p => `chrome-extension://x/${p}`,
+      getManifest: () => ({ version: running }),
+      reload: () => { calls.reload++; },
+    },
+    storage: { local: {
+      get: async k => ({ [k]: store[k] }),
+      set: async o => { Object.assign(store, o); },
+    } },
+  };
+  globalThis.fetch = async () => ({ json: async () => ({ version: onDisk }) });
+  // fresh module instance per test, so its in-memory state starts clean
+  const mod = await import(`../tab-auto-grouper/extension/self-update.js?t=${Math.random()}`);
+  return { mod, calls, store };
+}
+
+test('self-update: no reload when disk matches the running version', async () => {
+  const { mod, calls } = await freshSelfUpdate({ onDisk: '1.2.1', running: '1.2.1' });
+  assert.equal(await mod.reloadIfUpdatedOnDisk('t'), false);
+  assert.equal(calls.reload, 0);
+});
+
+test('self-update: reloads once on mismatch, concurrent callers share the check', async () => {
+  const { mod, calls, store } = await freshSelfUpdate({ onDisk: '1.3.0', running: '1.2.1' });
+  const results = await Promise.all([1, 2, 3, 4].map(() => mod.reloadIfUpdatedOnDisk('t')));
+  assert.deepEqual(results, [true, true, true, true]);
+  assert.equal(calls.reload, 1);
+  assert.ok(store.lastSelfReloadAt > 0);
+  assert.equal(await mod.reloadIfUpdatedOnDisk('t'), true);   // later calls are no-ops
+  assert.equal(calls.reload, 1);
+});
+
+test('self-update: storage guard blocks a second reload within a minute (fresh worker)', async () => {
+  const { mod, calls } = await freshSelfUpdate({ onDisk: '1.3.0', running: '1.2.1', lastSelfReloadAt: Date.now() - 5_000 });
+  assert.equal(await mod.reloadIfUpdatedOnDisk('t'), false);
+  assert.equal(calls.reload, 0);
+  const later = await freshSelfUpdate({ onDisk: '1.3.0', running: '1.2.1', lastSelfReloadAt: Date.now() - 61_000 });
+  assert.equal(await later.mod.reloadIfUpdatedOnDisk('t'), true);
+  assert.equal(later.calls.reload, 1);
+});
+
+test('self-update: a failed manifest read never reloads', async () => {
+  const { mod, calls } = await freshSelfUpdate({ onDisk: '1.3.0', running: '1.2.1' });
+  globalThis.fetch = async () => { throw new Error('ENOENT mid-install'); };
+  assert.equal(await mod.reloadIfUpdatedOnDisk('t'), false);
+  assert.equal(calls.reload, 0);
+});
+
 test('isStaleWorkerReply spots an old or missing background worker', async () => {
   const { isStaleWorkerReply } = await import('../tab-auto-grouper/extension/self-update.js');
   // old 1.1.x grouper get_status reply: no `groups`

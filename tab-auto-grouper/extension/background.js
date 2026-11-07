@@ -36,7 +36,7 @@ async function loadConfig(force = false) {
     configCache = config;
     configLoadedAt = now;
     // `tabgroups install` replaced the extension files: pick up the new code.
-    if (await reloadIfUpdatedOnDisk('TabGrouper')) return config;
+    await reloadIfUpdatedOnDisk('TabGrouper');
 
     const stamp = stampOf(config);
     if (stamp !== configStamp) {

@@ -18,9 +18,17 @@ import { join } from 'node:path';
 const [mode, ...args] = process.argv.slice(2);
 const name = args.at(-1);
 const ext = args[0];
-const port = 9350, sleep = ms => new Promise(r => setTimeout(r, ms));
+const port = 9350 + Math.floor(Math.random() * 500), sleep = ms => new Promise(r => setTimeout(r, ms));
 const chrome = spawn(process.env.CHROME_BIN, [`--remote-debugging-port=${port}`, `--user-data-dir=${mkdtempSync(join(tmpdir(), 'ver-'))}`,
-  '--no-first-run', `--load-extension=${ext}`, '--headless=new', 'about:blank'], { stdio: 'ignore' });
+  '--no-first-run', `--load-extension=${ext}`, '--headless=new', '--disable-gpu',
+  ...(process.env.CI ? ['--no-sandbox', '--disable-dev-shm-usage'] : []), 'about:blank'], { stdio: 'ignore' });
+
+// Poll until fn() is truthy or the deadline passes; returns the last value.
+async function waitFor(fn, ms = 10000, step = 250) {
+  const end = Date.now() + ms; let v;
+  while (Date.now() < end) { v = await fn(); if (v) return v; await sleep(step); }
+  return v;
+}
 
 let id = 0;
 async function connect(ws) {
@@ -56,9 +64,10 @@ try {
   if (mode === 'banner') {
     cpSync(args[1], ext, { recursive: true });  // install new files, no reload
     const { result } = await b.call('Target.createTarget', { url: `chrome-extension://${extId}/popup.html` });
-    await sleep(2500);
-    const p = await connect((await list()).find(t => t.id === result.targetId).webSocketDebuggerUrl);
-    const hidden = await p.ev("document.getElementById('reload-banner').hidden");
+    const target = await waitFor(async () => (await list()).find(t => t.id === result.targetId && t.url.endsWith('popup.html')));
+    const p = await connect(target.webSocketDebuggerUrl);
+    const hidden = await waitFor(async () => (await p.ev("document.getElementById('reload-banner')?.hidden")) === false ? false : null, 10000)
+      ?? await p.ev("document.getElementById('reload-banner')?.hidden");
     check(`${name}: old worker detected, reload banner shown`, hidden === false, `banner hidden=${hidden}`);
     // Clicking the button must call chrome.runtime.reload (stubbed so the harness survives)
     await p.ev("window.close = () => {}; chrome.runtime.reload = () => { window.__reloadCalled = true; }; document.getElementById('selfReloadBtn').click(); true");
@@ -69,8 +78,9 @@ try {
     // Stub reload in the worker so we can observe the call without Chrome unloading it.
     await worker.ev("globalThis.__reloads = 0; chrome.runtime.reload = () => { globalThis.__reloads++; }; true");
     const running = await worker.ev('chrome.runtime.getManifest().version');
-    // 1. No change on disk: an event must NOT trigger a reload.
-    await sleep(6000);  // past the config cache TTL
+    // 1. No change on disk: an event must NOT trigger a reload. Wait past the
+    //    longer of the two config TTLs (grouper 5 s, closer 10 s) so a check runs.
+    await sleep(11000);
     await worker.ev("chrome.tabs.create({ url: 'https://example.com/', active: false }).then(() => true)");
     await sleep(2000);
     check(`${name}: no reload while disk matches running v${running}`, await worker.ev('globalThis.__reloads') === 0);
@@ -79,10 +89,12 @@ try {
     const m = JSON.parse(readFileSync(mf, 'utf8')); m.version = '9.9.9'; writeFileSync(mf, JSON.stringify(m, null, 2));
     await sleep(11000);  // past both extensions' config TTLs
     await worker.ev("chrome.tabs.create({ url: 'https://example.org/', active: false }).then(() => true)");
-    await sleep(2500);
+    await waitFor(async () => (await worker.ev('globalThis.__reloads')) >= 1, 10000);
+    await sleep(1000);   // give any duplicate reload a chance to show up
     check(`${name}: reloads itself when disk has v9.9.9`, await worker.ev('globalThis.__reloads') === 1,
       `reloads=${await worker.ev('globalThis.__reloads')} log=${JSON.stringify(worker.logs.filter(l => /reload|Update/i.test(l)))}`);
-    // 3. Guard: another event inside a minute must not reload again.
+    // 3. Same worker, later event: must not reload again (in-memory flag; the
+    //    storage-backed once-a-minute guard is unit-tested in rules.test.mjs).
     await sleep(11000);
     await worker.ev("chrome.tabs.create({ url: 'https://example.net/', active: false }).then(() => true)");
     await sleep(2500);
