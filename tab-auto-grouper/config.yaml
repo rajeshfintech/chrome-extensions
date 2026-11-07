@@ -5,17 +5,31 @@
 # (These 9 are the only colors Chrome's tab-group API supports — others are
 #  rejected by the browser and fall back to grey.)
 #
-# Rule types (used in both `groups` and `exclude`):
-#   domain: matches hostname and all subdomains  (e.g. github.com → github.com, api.github.com)
-#   path:   matches hostname + path prefix        (e.g. docs.google.com/spreadsheets)
+# Rule types (used in both `groups` and `exclude`), one key per rule:
+#   domain:  hostname and all subdomains     (github.com → github.com, api.github.com)
+#   path:    hostname + path prefix          (docs.google.com/spreadsheets)
+#   pattern: case-insensitive regex on the full URL   ("^https://[^/]+\\.okta\\.com/")
+#   title:   case-insensitive substring of the tab title   ("[JIRA]")
+#
+# When several rules match, the LONGEST matching rule wins, so
+# `domain: gemini.google.com` beats `domain: google.com` wherever each lives.
+# Give a group `priority: 10` to make its rules win regardless of length.
 
 version: 1
 
+# Arrange managed groups left-to-right in the order below whenever a bulk pass
+# runs ("Group all open tabs", "Reload Config", config change, browser start).
+sort_groups: true
+
+# When a NEW tab lands on a URL already open in the same window, focus the
+# existing tab and close the new one. Only brand-new tabs are affected.
+dedupe_tabs: false
+
 # Tabs matching ANY rule here are never grouped, regardless of `groups` below.
-# Add domains/paths you open from your bookmarks bar or want left ungrouped.
-exclude:
-  # - domain: example.com
-  # - path: docs.google.com/spreadsheets/d/my-specific-sheet
+exclude: []
+# exclude:
+#   - domain: example.com
+#   - path: docs.google.com/spreadsheets/d/my-specific-sheet
 
 groups:
   - name: "Work"
@@ -32,13 +46,8 @@ groups:
     color: red
     collapsed: false
     rules:
-      - domain: google.com
+      - domain: google.com        # covers mail, calendar, drive, docs, ...
       - domain: gmail.com
-      - domain: calendar.google.com
-      - path: docs.google.com/spreadsheets
-      - path: docs.google.com/document
-      - path: docs.google.com/presentation
-      - domain: drive.google.com
 
   - name: "Social"
     color: pink
@@ -62,5 +71,6 @@ groups:
     rules:
       - domain: claude.ai
       - domain: chat.openai.com
-      - domain: gemini.google.com
+      - domain: chatgpt.com
+      - domain: gemini.google.com   # longer than google.com above, so it wins
       - domain: perplexity.ai

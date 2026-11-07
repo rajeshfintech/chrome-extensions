@@ -1,0 +1,12 @@
+{
+  "name": "chrome-extensions",
+  "private": true,
+  "type": "module",
+  "description": "Personal Chrome extensions with CLI installers",
+  "scripts": {
+    "test": "node --test tests/rules.test.mjs",
+    "check": "for f in */extension/*.js; do node --check \"$f\" || exit 1; done",
+    "smoke": "node tests/smoke.mjs"
+  },
+  "engines": { "node": ">=20" }
+}

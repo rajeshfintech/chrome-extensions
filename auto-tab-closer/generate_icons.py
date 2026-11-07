@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Generate extension icons using only Python stdlib (struct + zlib). No PIL needed."""
-import struct, zlib, math
+import struct
+import zlib
 from pathlib import Path
 
 OUT = Path(__file__).parent / 'extension' / 'icons'

@@ -1,15 +1,16 @@
 {
   "manifest_version": 3,
   "name": "Tab Auto Grouper",
-  "version": "1.1.6",
-  "description": "Automatically groups tabs based on URL rules defined in config.json",
+  "version": "1.2.0",
+  "description": "Automatically groups tabs by URL and title rules defined in config.yaml",
   "permissions": [
     "tabs",
     "tabGroups",
     "storage"
   ],
   "background": {
-    "service_worker": "background.js"
+    "service_worker": "background.js",
+    "type": "module"
   },
   "action": {
     "default_popup": "popup.html",
@@ -22,7 +23,7 @@
   "commands": {
     "collapse-all-groups": {
       "suggested_key": {
-        "default": "Ctrl+Shift+R"
+        "default": "Alt+Shift+G"
       },
       "description": "Collapse all tab groups"
     }

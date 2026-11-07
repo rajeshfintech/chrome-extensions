@@ -1,20 +1,21 @@
 {
   "idle_minutes": 10,
+  "warn_minutes": 1,
   "patterns": [
-    { "name": "AWS",          "match": "signin.aws.amazon.com" },
-    { "name": "Google",       "match": "accounts.google.com/signin" },
-    { "name": "Google",       "match": "accounts.google.com/v3/signin" },
-    { "name": "GitHub",       "match": "github.com/login" },
-    { "name": "GitHub",       "match": "github.com/session" },
-    { "name": "Microsoft",    "match": "login.microsoftonline.com" },
-    { "name": "Microsoft",    "match": "login.live.com" },
-    { "name": "LinkedIn",     "match": "linkedin.com/login" },
-    { "name": "Twitter/X",    "match": "x.com/i/flow/login" },
-    { "name": "Twitter",      "match": "twitter.com/login" },
-    { "name": "Slack",        "match": "slack.com/signin" },
-    { "name": "Okta",         "match": ".okta.com/login" },
-    { "name": "GitLab",       "match": "gitlab.com/users/sign_in" },
-    { "name": "Atlassian",    "match": "id.atlassian.com/login" },
-    { "name": "Atlassian",    "match": "atlassian.com/login" }
+    { "name": "AWS",          "path": "signin.aws.amazon.com" },
+    { "name": "Google",       "path": "accounts.google.com/signin" },
+    { "name": "Google",       "path": "accounts.google.com/v3/signin" },
+    { "name": "GitHub",       "path": "github.com/login" },
+    { "name": "GitHub",       "path": "github.com/session" },
+    { "name": "Microsoft",    "domain": "login.microsoftonline.com" },
+    { "name": "Microsoft",    "domain": "login.live.com" },
+    { "name": "LinkedIn",     "path": "linkedin.com/login" },
+    { "name": "Twitter/X",    "path": "x.com/i/flow/login" },
+    { "name": "Twitter",      "path": "twitter.com/login" },
+    { "name": "Slack",        "path": "slack.com/signin" },
+    { "name": "Okta",         "pattern": "^https://[^/]+\\.okta\\.com/login" },
+    { "name": "GitLab",       "path": "gitlab.com/users/sign_in" },
+    { "name": "Atlassian",    "path": "id.atlassian.com/login" },
+    { "name": "Atlassian",    "path": "atlassian.com/login" }
   ]
 }

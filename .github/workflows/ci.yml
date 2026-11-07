@@ -1,0 +1,44 @@
+# Validation: syntax, lint, unit tests, config checks. Runs on every PR and on main.
+name: validate
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: lint + unit tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22'
+      - name: Syntax-check extension scripts
+        run: npm run check
+      - name: Rule matcher tests
+        run: npm test
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.12'
+      - name: Install Python deps
+        run: pip install pyyaml==6.0.3 ruff==0.17.4
+      - name: Lint CLIs
+        run: ruff check .
+      - name: CLI tests
+        run: python -m unittest discover -s tests -v
+      - name: Shared rules.js copies are identical
+        run: cmp tab-auto-grouper/extension/rules.js auto-tab-closer/extension/rules.js
+      - name: CLIs start
+        run: |
+          python tab-auto-grouper/cli.py --help
+          python auto-tab-closer/cli.py --help
+          python tab-auto-grouper/cli.py validate
+          python auto-tab-closer/cli.py validate

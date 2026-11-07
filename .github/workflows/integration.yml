@@ -1,0 +1,98 @@
+# Integration: both extensions loaded into a real Chromium and driven end to end,
+# plus the CLI install/sync/remove flow on macOS (the only supported platform).
+name: integration
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  browser-smoke:
+    name: extensions in Chrome for Testing
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22'
+      - name: Install Chrome for Testing
+        id: chrome
+        run: |
+          out=$(npx --yes @puppeteer/browsers install chrome@stable --path "$RUNNER_TEMP/browsers")
+          echo "$out"
+          echo "bin=$(echo "$out" | tail -1 | awk '{print $2}')" >> "$GITHUB_OUTPUT"
+      - name: Run smoke test
+        env:
+          CHROME_BIN: ${{ steps.chrome.outputs.bin }}
+          CI: 'true'
+        run: node tests/smoke.mjs
+
+  cli-macos:
+    name: tabgroups / tabclose on macOS
+    runs-on: macos-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.12'
+      - run: pip install pyyaml==6.0.3
+
+      - name: tabgroups install → sync → status → remove
+        env:
+          EDITOR: 'true'   # `tabgroups config` must not block on an editor
+        run: |
+          set -euxo pipefail
+          python tab-auto-grouper/cli.py install
+          test -f "$HOME/Library/Application Support/chrome-tab-grouper/extension/manifest.json"
+          test -f "$HOME/.config/tab-auto-grouper/config.yaml"
+          python tab-auto-grouper/cli.py validate
+          python tab-auto-grouper/cli.py sync
+          python -c "import json; d=json.load(open('$HOME/Library/Application Support/chrome-tab-grouper/extension/config.json')); assert d['generated_at'] and d['groups']"
+          python tab-auto-grouper/cli.py config
+          python tab-auto-grouper/cli.py status
+          # Broken config must fail sync with a clear error, not a traceback
+          printf 'groups:\n  - color: magenta\n    rules: []\n' > "$HOME/.config/tab-auto-grouper/config.yaml"
+          if python tab-auto-grouper/cli.py sync; then echo 'expected sync to fail'; exit 1; fi
+          (python tab-auto-grouper/cli.py sync || true) | grep -q 'name is required'
+          # Version drift warning
+          python - <<'PY'
+          import json, os, pathlib
+          p = pathlib.Path(os.environ['HOME']) / 'Library/Application Support/chrome-tab-grouper/extension/manifest.json'
+          m = json.loads(p.read_text()); m['version'] = '0.0.1'; p.write_text(json.dumps(m))
+          PY
+          python tab-auto-grouper/cli.py status | grep -q 'this CLI ships'
+          python tab-auto-grouper/cli.py remove
+          test ! -d "$HOME/Library/Application Support/chrome-tab-grouper"
+
+      - name: tabclose install → sync → merge-defaults → remove
+        env:
+          EDITOR: 'true'
+        run: |
+          set -euxo pipefail
+          python auto-tab-closer/cli.py install
+          test -f "$HOME/Library/Application Support/auto-tab-closer/extension/manifest.json"
+          python auto-tab-closer/cli.py validate
+          python auto-tab-closer/cli.py sync
+          python auto-tab-closer/cli.py config
+          # Drop two patterns, merge-defaults must put them back
+          python - <<'PY'
+          import json, os, pathlib
+          p = pathlib.Path(os.environ['HOME']) / '.config/auto-tab-closer/config.json'
+          d = json.loads(p.read_text()); d['patterns'] = d['patterns'][:-2]; p.write_text(json.dumps(d))
+          PY
+          python auto-tab-closer/cli.py status | grep -q 'newer default pattern'
+          python auto-tab-closer/cli.py config --merge-defaults | grep -q 'Adding 2 pattern'
+          python auto-tab-closer/cli.py config --merge-defaults | grep -q 'already has every default'
+          python auto-tab-closer/cli.py validate
+          # Broken config must fail sync cleanly
+          echo '{"idle_minutes": 0, "patterns": [{"name": "x"}]}' > "$HOME/.config/auto-tab-closer/config.json"
+          if python auto-tab-closer/cli.py sync; then echo 'expected sync to fail'; exit 1; fi
+          (python auto-tab-closer/cli.py sync || true) | grep -q 'idle_minutes: must be greater than 0'
+          python auto-tab-closer/cli.py remove
+          test ! -d "$HOME/Library/Application Support/auto-tab-closer"

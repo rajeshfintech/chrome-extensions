@@ -111,6 +111,52 @@
 
     #status { color: #5f6368; font-size: 11px; margin-top: 8px; text-align: center; }
 
+    button.secondary.paused { background: #ea580c; color: #fff; }
+    body.is-paused header h1::after {
+      content: 'PAUSED';
+      margin-left: 8px;
+      font-size: 10px;
+      font-weight: 600;
+      color: #ea580c;
+      vertical-align: middle;
+    }
+    .section-head { display: flex; align-items: center; }
+    .section-head .section-title { flex: 1; }
+    .link-btn {
+      background: none;
+      border: none;
+      color: #5f6368;
+      font-size: 11px;
+      cursor: pointer;
+      padding: 10px 0 0;
+      text-decoration: underline;
+    }
+    #recent-list { max-height: 140px; overflow-y: auto; }
+    .recent-item {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 8px;
+      margin: 3px 0;
+      border-radius: 6px;
+      background: #f8f9fa;
+      border: 1px solid #e8eaed;
+    }
+    .recent-title { font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .recent-meta { font-size: 10px; color: #9aa0a6; }
+    .reopen-btn {
+      background: none;
+      border: 1px solid #dadce0;
+      border-radius: 4px;
+      cursor: pointer;
+      color: #202124;
+      font-size: 11px;
+      padding: 2px 6px;
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
+    .reopen-btn:hover { background: #e2e4e7; }
+
     .section-title {
       font-size: 11px;
       font-weight: 600;
@@ -203,6 +249,7 @@
 
   <div class="actions">
     <button id="cancelAllBtn" class="primary">Cancel All</button>
+    <button id="pauseBtn" class="secondary">Pause</button>
     <button id="reloadBtn" class="secondary">Reload Config</button>
   </div>
 
@@ -214,8 +261,14 @@
   </div>
   <button id="addCurrentBtn">+ Watch current tab</button>
 
+  <div class="section-head">
+    <div class="section-title">Recently closed</div>
+    <button id="clearRecentBtn" class="link-btn">clear</button>
+  </div>
+  <div id="recent-list"><div class="empty">Nothing closed yet</div></div>
+
   <div id="status"></div>
 
-  <script src="popup.js"></script>
+  <script type="module" src="popup.js"></script>
 </body>
 </html>
