@@ -173,6 +173,27 @@ def load_user_config():
     return cfg
 
 
+def install_extension_atomically(write_config):
+    """Stage the new extension next to the old one, then swap folders.
+
+    The running extension reloads itself when manifest.json on disk changes, so
+    it must never see a half-copied folder: build the complete new copy
+    (config included) in a sibling directory and rename it into place.
+    """
+    INSTALL_PATH.mkdir(parents=True, exist_ok=True)
+    staging = INSTALL_PATH / 'extension.new'
+    retired = INSTALL_PATH / 'extension.old'
+    for d in (staging, retired):
+        if d.exists():
+            shutil.rmtree(d)
+    shutil.copytree(EXTENSION_TEMPLATE, staging)
+    write_config(staging / 'config.json')
+    if INSTALLED_EXT.exists():
+        os.rename(INSTALLED_EXT, retired)
+    os.rename(staging, INSTALLED_EXT)
+    shutil.rmtree(retired, ignore_errors=True)
+
+
 def read_version(ext_dir):
     try:
         return json.loads((ext_dir / 'manifest.json').read_text()).get('version')
@@ -237,12 +258,8 @@ def cmd_install(args):
     ensure_user_config()
     load_user_config()
 
-    if INSTALLED_EXT.exists():
-        shutil.rmtree(INSTALLED_EXT)
-    shutil.copytree(EXTENSION_TEMPLATE, INSTALLED_EXT)
+    install_extension_atomically(lambda dest: shutil.copy(USER_CONFIG_JSON, dest))
     ok(f'Extension v{read_version(INSTALLED_EXT)} installed at {INSTALLED_EXT}')
-
-    shutil.copy(USER_CONFIG_JSON, INSTALLED_CONFIG)
     ok('config.json applied')
 
     all_profiles = get_profiles()
@@ -263,7 +280,8 @@ def cmd_install(args):
     2. Click   "Load unpacked"
     3. Select:  {INSTALLED_EXT}
   Chrome remembers the extension across restarts once loaded.
-  Already loaded?  Just click the reload icon (↺) on the extension card.
+  Already loaded?  From v1.2.1 it reloads itself within a few seconds.
+  Upgrading from 1.2.0 or older: click the reload icon (↺) once.
   ─────────────────────────────────────────────────────────────────────────
 """)
 

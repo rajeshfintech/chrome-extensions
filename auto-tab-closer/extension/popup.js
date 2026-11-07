@@ -1,4 +1,5 @@
 import { ruleKey } from './rules.js';
+import { isStaleWorkerReply } from './self-update.js';
 
 let state = { pending: {}, paused: false, patterns: [], recentlyClosed: [] };
 let actionsInFlight = 0;
@@ -159,7 +160,9 @@ function renderRecent() {
 async function refresh(force = false) {
   if (actionsInFlight > 0) return;
   const res = await send({ type: 'get_state' });
-  if (!res?.ok || actionsInFlight > 0) return;
+  if (isStaleWorkerReply(res, 'ok')) { showReloadBanner(); return; }
+  hideReloadBanner();
+  if (!res.ok || actionsInFlight > 0) return;
   const fingerprint = JSON.stringify(res);
   if (!force && fingerprint === lastRendered) return;
   lastRendered = fingerprint;
@@ -239,6 +242,19 @@ document.getElementById('clearRecentBtn').addEventListener('click', () => action
   state.recentlyClosed = [];
   renderRecent();
 }));
+
+// New popup files + old background worker (extension not reloaded after an
+// install): offer a one-click reload instead of showing empty data.
+function showReloadBanner() {
+  document.getElementById('reload-banner').hidden = false;
+}
+function hideReloadBanner() {
+  document.getElementById('reload-banner').hidden = true;
+}
+document.getElementById('selfReloadBtn').addEventListener('click', () => {
+  chrome.runtime.reload();
+  window.close();
+});
 
 refresh(true);
 setInterval(() => refresh(), 5000);

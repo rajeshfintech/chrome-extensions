@@ -17,6 +17,8 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0   # upgrade checks need the old release tags
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: '22'
@@ -31,6 +33,27 @@ jobs:
           CHROME_BIN: ${{ steps.chrome.outputs.bin }}
           CI: 'true'
         run: node tests/smoke.mjs
+
+      - name: Upgrade path (old worker banner, self-reload after install)
+        env:
+          CHROME_BIN: ${{ steps.chrome.outputs.bin }}
+          CI: 'true'
+        run: |
+          set -euo pipefail
+          T="$RUNNER_TEMP/upgrade"; mkdir -p "$T/old-grouper" "$T/old-closer"
+          git archive v1.1.7 extension | tar -x -C "$T/old-grouper"
+          git archive auto-tab-closer-v1.1.0 auto-tab-closer/extension | tar -x -C "$T/old-closer"
+          fresh() { rm -rf "$T/ext" && mkdir -p "$T/ext" && cp -R "$1"/. "$T/ext"/; }
+
+          fresh "$T/old-grouper/extension"; cp tab-auto-grouper/extension/config.json "$T/ext/"
+          node tests/upgrade.mjs banner "$T/ext" "$PWD/tab-auto-grouper/extension" "Tab Auto Grouper"
+          fresh "$T/old-closer/auto-tab-closer/extension"
+          node tests/upgrade.mjs banner "$T/ext" "$PWD/auto-tab-closer/extension" "Auto Tab Closer"
+
+          fresh tab-auto-grouper/extension
+          node tests/upgrade.mjs selfupd "$T/ext" "Tab Auto Grouper"
+          fresh auto-tab-closer/extension
+          node tests/upgrade.mjs selfupd "$T/ext" "Auto Tab Closer"
 
   cli-macos:
     name: tabgroups / tabclose on macOS

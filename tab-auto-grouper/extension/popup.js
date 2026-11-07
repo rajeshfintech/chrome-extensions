@@ -1,4 +1,5 @@
 import { ruleKey } from './rules.js';
+import { isStaleWorkerReply } from './self-update.js';
 
 const COLOR_HEX = {
   grey: '#5f6368', blue: '#1a73e8', red: '#d93025', yellow: '#f9ab00', green: '#188038',
@@ -109,7 +110,9 @@ function renderManualRules() {
 
 async function refresh() {
   const res = await send({ type: 'get_status' });
-  if (!res || res.success === false) return;
+  if (isStaleWorkerReply(res, 'groups')) { showReloadBanner(); return; }
+  hideReloadBanner();
+  if (res.success === false) { setStatus(res.error || 'Could not read status'); return; }
   status = res;
   await renderGroups();
   renderManualRules();
@@ -174,7 +177,8 @@ document.getElementById('snapshotBtn').addEventListener('click', () => {
   const btn = document.getElementById('snapshotBtn');
   withBusy(btn, 'Copying…', async () => {
     const res = await send({ type: 'snapshot_yaml' });
-    if (!res?.success) { setStatus(res?.error || 'Snapshot failed'); return; }
+    if (isStaleWorkerReply(res, 'success')) { showReloadBanner(); return; }
+    if (!res.success) { setStatus(res.error || 'Snapshot failed'); return; }
     try {
       await navigator.clipboard.writeText(res.yaml);
       setStatus('YAML copied — paste into config.yaml');
@@ -183,6 +187,19 @@ document.getElementById('snapshotBtn').addEventListener('click', () => {
       console.log(res.yaml);
     }
   });
+});
+
+// New popup files + old background worker (extension not reloaded after an
+// install): offer a one-click reload instead of showing empty data.
+function showReloadBanner() {
+  document.getElementById('reload-banner').hidden = false;
+}
+function hideReloadBanner() {
+  document.getElementById('reload-banner').hidden = true;
+}
+document.getElementById('selfReloadBtn').addEventListener('click', () => {
+  chrome.runtime.reload();
+  window.close();
 });
 
 refresh();

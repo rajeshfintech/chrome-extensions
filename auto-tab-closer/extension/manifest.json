@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Auto Tab Closer",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "Automatically closes logged-out tabs (AWS, Google, GitHub, etc.) after idle time",
   "permissions": [
     "tabs",

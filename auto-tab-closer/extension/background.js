@@ -5,6 +5,7 @@
 // timer fires is never closed, it just gets another round.
 
 import { matchPattern, usesTitles, ruleKey, normalisePath } from './rules.js';
+import { reloadIfUpdatedOnDisk } from './self-update.js';
 
 const CONFIG_TTL_MS = 10_000;
 const RECENT_LIMIT = 20;
@@ -26,6 +27,8 @@ async function loadConfig(force = false) {
     const resp = await fetch(chrome.runtime.getURL('config.json'));
     configCache = { ...DEFAULTS, ...(await resp.json()) };
     configLoadedAt = now;
+    // `tabclose install` replaced the extension files: pick up the new code.
+    await reloadIfUpdatedOnDisk('AutoClose');
     return configCache;
   } catch (err) {
     console.error('[AutoClose] Failed to load config:', err);
