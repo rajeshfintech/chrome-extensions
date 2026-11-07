@@ -14,24 +14,24 @@ brew tap rajeshfintech/tools
 
 ### `tab-auto-grouper`
 
-Automatically groups Chrome tabs by URL rules (domain or path prefix). Config is a YAML file you own — `brew upgrade` never touches it.
+Automatically groups Chrome tabs by URL and title rules. Config is a YAML file you own — `brew upgrade` never touches it. Rules can also be added straight from the toolbar popup.
 
 ```bash
 brew install rajeshfintech/tools/tab-auto-grouper
 tabgroups install        # one-time Chrome setup per profile
 tabgroups config         # edit grouping rules in $EDITOR
-tabgroups sync           # apply config changes to the extension
+tabgroups sync           # validate + apply config changes to the extension
 ```
 
 ### `auto-tab-closer`
 
-Automatically closes Chrome tabs that have been logged out (AWS, Google, GitHub, Microsoft, Slack, etc.). Detects the redirect to a login page and starts a 10-minute idle timer. Focusing the tab resets the timer; navigating away (e.g. after re-logging in) cancels it. You can also manually watch any link from the popup — matching tabs are closed after the same idle timeout.
+Automatically closes Chrome tabs that have been logged out (AWS, Google, GitHub, Microsoft, Slack, etc.). Detects the redirect to a login page and starts an idle timer. Focusing the tab resets the timer; navigating away (e.g. after re-logging in) cancels it; a tab that is in front when the timer fires is never closed. You get a notification a minute before, can pause everything from the popup, and can reopen anything it closed.
 
 ```bash
 brew install rajeshfintech/tools/auto-tab-closer
 tabclose install         # one-time Chrome setup per profile
 tabclose config          # edit idle_minutes and login-page patterns
-tabclose sync            # push config changes to the extension
+tabclose sync            # validate + push config changes to the extension
 ```
 
 ---
@@ -45,7 +45,7 @@ After `tabgroups install` or `tabclose install`, do this once for each Chrome pr
 3. Enable **Developer mode** (toggle, top-right)
 4. Click **Load unpacked** → select the path shown by the install command
 
-Chrome remembers the extension across restarts. After a `brew upgrade`, click the **↺ reload** icon on the extension card in `chrome://extensions`.
+Chrome remembers the extension across restarts. After a `brew upgrade`, run the install command again and click the **↺ reload** icon on the extension card in `chrome://extensions`. `status` and `sync` warn you when the installed extension is older than the one the CLI ships.
 
 ---
 
@@ -57,11 +57,12 @@ Chrome remembers the extension across restarts. After a `brew upgrade`, click th
 |---|---|
 | `tabgroups install` | Copy extension and guide Chrome setup for all profiles |
 | `tabgroups install --profile "Profile 2"` | Install for a specific profile only |
-| `tabgroups sync` | Apply config changes to the running extension |
+| `tabgroups sync` | Validate config and apply it to the running extension |
+| `tabgroups validate` | Check `config.yaml` without writing anything |
 | `tabgroups config` | Open `config.yaml` in `$EDITOR` |
 | `tabgroups remove` | Remove the installed extension files |
 | `tabgroups list-profiles` | List Chrome profiles on this machine |
-| `tabgroups status` | Show paths and installation status |
+| `tabgroups status` | Show paths, versions, and installation status |
 
 ### Configuration
 
@@ -69,6 +70,8 @@ Your config lives at `~/.config/tab-auto-grouper/config.yaml`. Created automatic
 
 ```yaml
 version: 1
+sort_groups: true        # keep managed groups in this order, left to right
+dedupe_tabs: false       # focus an existing tab instead of opening a duplicate
 
 # Tabs matching any rule here are never grouped
 exclude:
@@ -76,40 +79,55 @@ exclude:
 
 groups:
   - name: "Work"
-    color: blue          # grey | blue | red | yellow | green | pink | purple | cyan
+    color: blue          # grey | blue | red | yellow | green | pink | purple | cyan | orange
     collapsed: false
     rules:
       - domain: github.com          # matches github.com and *.github.com
       - domain: jira.atlassian.net
+      - title: "[JIRA]"             # tab title contains this text
 
   - name: "Docs"
     color: green
+    priority: 10                    # optional: these rules win even when shorter
     rules:
       - path: docs.google.com/document     # matches hostname + path prefix
-      - path: docs.google.com/spreadsheets
+      - pattern: "^https://[^/]+\\.notion\\.site/"   # regex on the full URL
 ```
 
-**Rule types:**
+**Rule types** (one key per rule, usable in `groups` and `exclude`):
 
 | Type | Example | Matches |
 |---|---|---|
 | `domain` | `github.com` | `github.com`, `api.github.com`, `gist.github.com` |
-| `path` | `docs.google.com/spreadsheets` | Only URLs whose `host/path` starts with that value |
+| `path` | `docs.google.com/spreadsheets` | URLs whose `host/path` starts with that value |
+| `pattern` | `^https://[^/]+\.okta\.com/` | Case-insensitive regex on the full URL |
+| `title` | `[JIRA]` | Case-insensitive substring of the tab title |
 
 Leading `www.` is stripped automatically on both sides.
+
+**Precedence.** When several rules match, the longest matching rule wins, so `domain: gemini.google.com` beats `domain: google.com` no matter which group lists it. Ties keep config order. A group with `priority: N` beats any group with a lower priority regardless of rule length. Rules in `exclude` win outright.
+
+**Pinned tabs** are never grouped. Tabs in groups whose name is not in your config are never touched.
+
+### Popup
+
+- **Group all open tabs** / **Reload Config** / **Collapse All** (also `Alt+Shift+G`, configurable at `chrome://extensions/shortcuts`)
+- Each group shows a live tab count.
+- **Add current site to group** adds a `domain` rule for the active tab to the chosen group without editing YAML. These rules are stored in the extension (`chrome.storage.local`), merged with `config.yaml`, and survive `sync` and upgrades. Remove them with **×**.
+- **Copy current groups as YAML** turns whatever groups you have built by hand in Chrome into `config.yaml` text on the clipboard, so you can bootstrap a config from real usage.
 
 ### How config updates flow
 
 ```
 ~/.config/tab-auto-grouper/config.yaml   ← edit this
          │
-         │  tabgroups sync
+         │  tabgroups sync   (validates first)
          ▼
-~/Library/Application Support/tab-auto-grouper/extension/config.json
+~/Library/Application Support/chrome-tab-grouper/extension/config.json
          │
-         │  auto-detected within 5 s (no reload needed)
+         │  picked up on the next tab navigation, or instantly via "Reload Config"
          ▼
-      Chrome extension
+      Chrome extension   → regroups every open tab once per config change
 ```
 
 ### Permissions
@@ -126,67 +144,72 @@ Leading `www.` is stripped automatically on both sides.
 |---|---|
 | `tabclose install` | Copy extension and guide Chrome setup for all profiles |
 | `tabclose install --profile "Profile 2"` | Install for a specific profile only |
-| `tabclose sync` | Push config changes to the running extension |
+| `tabclose sync` | Validate config and push it to the running extension |
+| `tabclose validate` | Check `config.json` without writing anything |
 | `tabclose config` | Open `config.json` in `$EDITOR` |
+| `tabclose config --merge-defaults` | Append login-page patterns added in newer releases to your config |
 | `tabclose remove` | Remove the installed extension files |
 | `tabclose list-profiles` | List Chrome profiles on this machine |
-| `tabclose status` | Show paths and installation status |
+| `tabclose status` | Show paths, versions, and installation status |
 
 ### Configuration
 
-Your config lives at `~/.config/auto-tab-closer/config.json`. Created automatically on first run, **never modified by `brew upgrade`**.
+Your config lives at `~/.config/auto-tab-closer/config.json`. Created automatically on first run, **never modified by `brew upgrade`**. When a release adds new default patterns, `tabclose status` tells you and `tabclose config --merge-defaults` appends them.
 
 ```json
 {
   "idle_minutes": 10,
+  "warn_minutes": 1,
   "patterns": [
-    { "name": "AWS",       "match": "signin.aws.amazon.com" },
-    { "name": "Google",    "match": "accounts.google.com/signin" },
-    { "name": "GitHub",    "match": "github.com/login" },
-    { "name": "Microsoft", "match": "login.microsoftonline.com" },
-    { "name": "Slack",     "match": "slack.com/signin" },
-    { "name": "Okta",      "match": ".okta.com/login" }
+    { "name": "AWS",       "path": "signin.aws.amazon.com" },
+    { "name": "Google",    "path": "accounts.google.com/signin" },
+    { "name": "GitHub",    "path": "github.com/login" },
+    { "name": "Microsoft", "domain": "login.microsoftonline.com" },
+    { "name": "Slack",     "path": "slack.com/signin", "idle_minutes": 30 },
+    { "name": "Okta",      "pattern": "^https://[^/]+\\.okta\\.com/login" }
   ]
 }
 ```
 
-Add any site by appending a pattern entry — `match` is a substring of the login page URL.
+- `idle_minutes` — default countdown. Any pattern can override it with its own `idle_minutes`.
+- `warn_minutes` — show a notification this many minutes before closing (`0` disables). The notification's **Keep open** button cancels the close; clicking the notification focuses the tab, which resets the timer.
+- `patterns` — each entry has a `name` and exactly one rule: `domain`, `path`, `pattern` (regex), `title`, or `match` (raw URL substring). Same rule syntax as tab-auto-grouper; the most specific matching pattern wins.
 
 ### How the idle timer works
 
 ```
 Tab navigates to a login page
          │
-         │  idle_minutes countdown starts
+         │  idle_minutes countdown starts (reloads do NOT restart it)
          ▼
   User focuses the tab? ──yes──► timer resets
          │
          │ no — timer expires
          ▼
-  User navigates away? ──yes──► timer cancelled
+  User navigated away? ──yes──► timer was cancelled
          │
          │ no
          ▼
-      Tab is closed
+  Tab is active and window focused? ──yes──► timer restarts (never closes what you are looking at)
+         │
+         │ no
+         ▼
+      Tab is closed and added to "Recently closed"
 ```
 
-### Manual watch list
+Every browser start wipes stale timers and rescans open tabs, because Chrome reuses tab IDs across sessions.
 
-Besides the built-in login-page detection, you can watch any link from the toolbar popup:
+### Popup
 
-- **+ Watch current tab** — adds the active tab's URL (hostname + path) to the watch list
-- **Add** — type any URL substring (e.g. `example.com/dashboard`) and add it
-
-Tabs matching a watched link go on the same idle timer as login pages — open tabs are
-scanned immediately when you add a link. Remove a link with the **×** button; any tabs
-that were pending only because of that link are taken off the timer.
-
-The watch list is stored in the extension's own storage (`chrome.storage.local`), so it
-survives `tabclose sync`, config reloads, and `brew upgrade`.
+- Pending tabs with live countdowns and a **Keep** button each; **Cancel All**.
+- **Pause** clears every timer and stops new ones until you **Resume** (badge shows `II`). Resuming rescans open tabs.
+- **Reload Config** re-reads config, re-arms pending timers with the new `idle_minutes`, and rescans.
+- **Watched links**: **+ Watch current tab** adds a `path` rule for the active tab; **Add** takes any URL substring (e.g. `example.com/dashboard`). These live in `chrome.storage.local` and survive `sync` and upgrades.
+- **Recently closed**: the last 20 tabs it closed, with **Reopen**.
 
 ### Permissions
 
-`tabs`, `storage`, `alarms`, `action` — no host permissions, no network requests, no page content access.
+`tabs`, `storage`, `alarms`, `notifications` — no host permissions, no network requests, no page content access.
 
 ---
 
@@ -196,34 +219,54 @@ survives `tabclose sync`, config reloads, and `brew upgrade`.
 |---|---|
 | `~/.config/tab-auto-grouper/config.yaml` | **Never touched** |
 | `~/.config/auto-tab-closer/config.json` | **Never touched** |
-| `~/Library/Application Support/tab-auto-grouper/` | **Never touched** |
+| `~/Library/Application Support/chrome-tab-grouper/` | **Never touched** |
 | `~/Library/Application Support/auto-tab-closer/` | **Never touched** |
+| Rules and watched links added from the popups | **Never touched** (extension storage) |
 
 After upgrading either extension, run `tabgroups install` / `tabclose install` to refresh the extension files, then reload in Chrome.
 
 ---
+
+## Development
+
+```bash
+node --test tests/                           # rule matcher tests
+python3 -m unittest discover -s tests -v     # CLI config validation tests
+uvx ruff check .                             # lint
+python3 tests/test_cli.py --regen            # regenerate the bundled tab-auto-grouper/extension/config.json after editing config.yaml
+CHROME_BIN=/path/to/chromium node tests/smoke.mjs   # end-to-end: loads both extensions in a real browser (local only)
+```
+
+The smoke test needs a Chromium or Chrome for Testing binary (Playwright's cached one works); Google Chrome itself ignores `--load-extension` since v137.
+
+Both extensions share `extension/rules.js`; edit the copy in `tab-auto-grouper` and copy it over, the test suite fails if they differ. CI runs all of the above on every push and PR.
 
 ## Project structure
 
 ```
 chrome-extensions/
 ├── tab-auto-grouper/
-│   ├── extension/          Chrome extension source (MV3)
+│   ├── extension/          Chrome extension source (MV3, ES modules)
 │   │   ├── manifest.json
-│   │   ├── background.js   Service worker — reads config.json, groups tabs
+│   │   ├── background.js   Service worker — groups tabs, merges popup rules
+│   │   ├── rules.js        Shared rule matcher (identical copy in auto-tab-closer)
 │   │   ├── popup.html/js   Toolbar popup
+│   │   ├── config.json     Bundled default, generated from config.yaml
 │   │   └── icons/
 │   ├── config.yaml         Default config template
 │   ├── cli.py              tabgroups CLI
 │   └── generate_icons.py
 ├── auto-tab-closer/
-│   ├── extension/          Chrome extension source (MV3)
+│   ├── extension/          Chrome extension source (MV3, ES modules)
 │   │   ├── manifest.json
 │   │   ├── background.js   Service worker — detects login redirects, manages alarms
+│   │   ├── rules.js        Shared rule matcher
 │   │   ├── popup.html/js   Toolbar popup with live countdown
 │   │   ├── config.json     Bundled default config (patterns + idle_minutes)
 │   │   └── icons/
 │   ├── cli.py              tabclose CLI
 │   └── generate_icons.py
+├── tests/                  node --test + unittest
+├── .github/workflows/ci.yml
 └── LICENSE
 ```

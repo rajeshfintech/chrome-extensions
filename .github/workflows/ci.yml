@@ -1,0 +1,35 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Syntax-check extension scripts
+        run: |
+          for f in */extension/*.js; do node --check "$f"; done
+      - name: Rule matcher tests
+        run: node --test tests/rules.test.mjs
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install Python deps
+        run: pip install pyyaml ruff
+      - name: Lint CLIs
+        run: ruff check .
+      - name: CLI tests
+        run: python -m unittest discover -s tests -v
+      - name: CLIs start
+        run: |
+          python tab-auto-grouper/cli.py --help
+          python auto-tab-closer/cli.py --help

@@ -7,7 +7,7 @@
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
-      width: 280px;
+      width: 300px;
       padding: 14px;
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
       font-size: 13px;
@@ -23,20 +23,24 @@
       padding-bottom: 10px;
     }
     header img { width: 20px; height: 20px; }
-    header h1 { font-size: 14px; font-weight: 600; }
-    #groups { margin-bottom: 10px; }
+    header h1 { font-size: 14px; font-weight: 600; flex: 1; }
+    #loaded-label { font-size: 11px; color: #5f6368; }
+
+    #groups { margin-bottom: 10px; max-height: 200px; overflow-y: auto; }
     .group-item {
       padding: 5px 8px;
       margin: 3px 0;
       border-radius: 4px;
       background: #f1f3f4;
       display: flex;
-      justify-content: space-between;
       align-items: center;
+      gap: 8px;
     }
-    .group-name { font-weight: 500; }
-    .group-count { color: #5f6368; font-size: 11px; }
-    .empty { color: #9aa0a6; padding: 4px 0; }
+    .swatch { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+    .group-name { font-weight: 500; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .group-count { color: #5f6368; font-size: 11px; white-space: nowrap; }
+    .empty { color: #9aa0a6; padding: 4px 0; font-size: 12px; }
+
     button {
       width: 100%;
       padding: 7px 12px;
@@ -54,6 +58,55 @@
     button:disabled { background: #9aa0a6; cursor: default; color: #fff; border-color: transparent; }
     button.secondary { background: #fff; color: #1a73e8; border: 1px solid #dadce0; }
     button.secondary:hover { background: #f1f3f4; }
+
+    .section-title {
+      font-size: 11px;
+      font-weight: 600;
+      color: #5f6368;
+      text-transform: uppercase;
+      letter-spacing: 0.4px;
+      margin: 12px 0 6px;
+      border-top: 1px solid #e8eaed;
+      padding-top: 10px;
+    }
+    .add-row { display: flex; gap: 6px; }
+    .add-row select {
+      flex: 1;
+      min-width: 0;
+      padding: 6px 8px;
+      border: 1px solid #dadce0;
+      border-radius: 4px;
+      font-size: 12px;
+      background: #fff;
+    }
+    .add-row button { width: auto; flex-shrink: 0; font-size: 12px; padding: 6px 10px; }
+
+    #manual-list { max-height: 120px; overflow-y: auto; margin-top: 6px; }
+    .manual-item {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 8px;
+      margin: 3px 0;
+      border-radius: 6px;
+      background: #f8f9fa;
+      border: 1px solid #e8eaed;
+    }
+    .manual-match { flex: 1; min-width: 0; font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .manual-group { font-size: 11px; color: #1a73e8; white-space: nowrap; }
+    .remove-btn {
+      width: auto;
+      background: none;
+      border: none;
+      cursor: pointer;
+      color: #9aa0a6;
+      font-size: 14px;
+      line-height: 1;
+      padding: 2px 4px;
+      flex-shrink: 0;
+    }
+    .remove-btn:hover { color: #dc2626; background: none; }
+
     #status { color: #5f6368; font-size: 11px; margin-top: 8px; text-align: center; }
   </style>
 </head>
@@ -61,6 +114,7 @@
   <header>
     <img src="icons/icon48.png" alt="">
     <h1>Tab Auto Grouper</h1>
+    <span id="loaded-label"></span>
   </header>
 
   <div id="groups"><div class="empty">Loading…</div></div>
@@ -68,6 +122,17 @@
   <button id="groupAllBtn">Group all open tabs</button>
   <button id="reloadBtn" class="secondary">Reload Config</button>
   <button id="collapseBtn" class="secondary">Collapse All</button>
+
+  <div class="section-title">Add current site to group</div>
+  <div class="add-row">
+    <select id="groupSelect"></select>
+    <button id="addCurrentBtn">Add</button>
+  </div>
+  <div id="manual-list"><div class="empty">No rules added from the popup</div></div>
+
+  <div class="section-title">Export</div>
+  <button id="snapshotBtn" class="secondary">Copy current groups as YAML</button>
+
   <div id="status"></div>
 
   <script src="popup.js"></script>
