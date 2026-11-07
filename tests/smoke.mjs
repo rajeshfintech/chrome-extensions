@@ -68,12 +68,20 @@ try {
     let list = [];
     try { list = await targets(); } catch { continue; }
     for (const t of list) {
-      if (t.type !== 'service_worker' || !t.url.startsWith('chrome-extension://') || seen.has(t.id)) continue;
-      seen.add(t.id);
-      const c = await connect(t.webSocketDebuggerUrl);
-      await c.call('Runtime.enable');
+      if (t.type !== 'service_worker' || !t.url.startsWith('chrome-extension://')
+          || !t.url.endsWith('/background.js') || seen.has(t.id)) continue;
+      let c;
       let name = '';
-      try { name = await c.evaluate('chrome.runtime.getManifest().name'); } catch {}
+      try {
+        c = await connect(t.webSocketDebuggerUrl);
+        await c.call('Runtime.enable');
+        name = await c.evaluate('chrome.runtime.getManifest().name');
+      } catch {
+        // Worker listed but not ready yet (common on CI runners): retry next loop.
+        c?.close();
+        continue;
+      }
+      seen.add(t.id);
       if (OURS.has(name)) { byName[name] = c; workers.push(t); } else { c.close(); }
     }
   }
