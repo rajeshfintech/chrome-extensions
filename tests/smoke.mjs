@@ -21,7 +21,8 @@ const udd = mkdtempSync(join(tmpdir(), 'ext-smoke-'));
 
 const chrome = spawn(CHROME, [
   `--remote-debugging-port=${port}`, `--user-data-dir=${udd}`, '--no-first-run', '--no-default-browser-check',
-  `--load-extension=${exts.join(',')}`, '--headless=new', 'about:blank'
+  `--load-extension=${exts.join(',')}`, '--headless=new', '--disable-gpu',
+  ...(process.env.CI ? ['--no-sandbox', '--disable-dev-shm-usage'] : []), 'about:blank'
 ], { stdio: 'ignore' });
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));

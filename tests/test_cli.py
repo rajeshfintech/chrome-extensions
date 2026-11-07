@@ -47,6 +47,13 @@ class GrouperConfigValidation(unittest.TestCase):
                        'sort_groups'):
             self.assertIn(needle, joined)
 
+    def test_js_regex_dialect(self):
+        for bad in ('(?P<x>a)', '(?i)abc', r'\Afoo', 'a++', '(?#c)x', '['):
+            self.assertTrue(grouper.check_js_regex(bad), bad)
+            self.assertTrue(closer.check_js_regex(bad), bad)
+        for good in ('^https://[^/]+\\.okta\\.com/', '(?<name>a)+', 'a{2,}b?'):
+            self.assertIsNone(grouper.check_js_regex(good), good)
+
     def test_not_a_mapping(self):
         self.assertTrue(grouper.validate_config(['x']))
         self.assertTrue(grouper.validate_config({'groups': 'x'}))

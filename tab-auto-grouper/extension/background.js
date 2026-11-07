@@ -260,14 +260,27 @@ async function sortGroupsInWindow(windowId, cfg) {
   }
 }
 
-async function processAllTabs() {
-  const cfg = await effectiveConfig();
-  const windows = await chrome.windows.getAll({ windowTypes: ['normal'] });
-  let total = 0;
-  for (const w of windows) {
-    total += await enqueue(w.id, () => processAllTabsInWindowNow(w.id, cfg));
-  }
-  return total;
+// Bulk passes are coalesced: install, startup and a config change can all
+// ask for one within the same tick. A request made while a pass is running
+// queues exactly one more pass (with fresh config) once it finishes.
+let bulkRun = null;
+let bulkRerun = false;
+
+function processAllTabs() {
+  if (bulkRun) { bulkRerun = true; return bulkRun; }
+  bulkRun = (async () => {
+    let total = 0;
+    do {
+      bulkRerun = false;
+      const cfg = await effectiveConfig();
+      const windows = await chrome.windows.getAll({ windowTypes: ['normal'] });
+      for (const w of windows) {
+        total += await enqueue(w.id, () => processAllTabsInWindowNow(w.id, cfg));
+      }
+    } while (bulkRerun);
+    return total;
+  })().finally(() => { bulkRun = null; });
+  return bulkRun;
 }
 
 // ---------------------------------------------------------------------------
@@ -439,7 +452,7 @@ chrome.commands.onCommand.addListener(async (command) => {
   }
 });
 
-chrome.runtime.onInstalled.addListener(() => { processAllTabs(); });
-chrome.runtime.onStartup.addListener(() => { processAllTabs(); });
+chrome.runtime.onInstalled.addListener(() => { loadConfig(true).then(processAllTabs); });
+chrome.runtime.onStartup.addListener(() => { loadConfig(true).then(processAllTabs); });
 
 loadConfig(true);

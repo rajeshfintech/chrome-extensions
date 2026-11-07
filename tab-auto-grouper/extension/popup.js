@@ -1,3 +1,5 @@
+import { ruleKey } from './rules.js';
+
 const COLOR_HEX = {
   grey: '#5f6368', blue: '#1a73e8', red: '#d93025', yellow: '#f9ab00', green: '#188038',
   pink: '#d01884', purple: '#a142f4', cyan: '#007b83', orange: '#fa903e'
@@ -83,11 +85,10 @@ function renderManualRules() {
   }
   el.innerHTML = rules.map(r => {
     const value = r.domain || r.path;
-    const key = (r.domain ? 'domain:' : 'path:') + String(value).toLowerCase();
     return `<div class="manual-item">
       <span class="manual-match" title="${esc(value)}">${esc(value)}</span>
       <span class="manual-group">${esc(r.group)}</span>
-      <button class="remove-btn" data-key="${esc(key)}" title="Remove">&times;</button>
+      <button class="remove-btn" data-key="${esc(ruleKey(r))}" title="Remove">&times;</button>
     </div>`;
   }).join('');
 

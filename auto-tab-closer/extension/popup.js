@@ -1,4 +1,8 @@
+import { ruleKey } from './rules.js';
+
 let state = { pending: {}, paused: false, patterns: [], recentlyClosed: [] };
+let actionsInFlight = 0;
+let lastRendered = '';
 
 function esc(str) {
   return String(str)
@@ -41,11 +45,11 @@ function patternValue(p) {
   return p.domain || p.path || p.match || p.pattern || p.title || '';
 }
 
-function patternKey(p) {
-  for (const k of ['domain', 'path', 'match', 'pattern', 'title']) {
-    if (p[k]) return `${k}:${String(p[k]).trim().toLowerCase()}`;
-  }
-  return '';
+// Wrap any user action so the periodic refresh does not re-render (and
+// replace the button being clicked) while its round-trip is in flight.
+async function action(fn) {
+  actionsInFlight++;
+  try { return await fn(); } finally { actionsInFlight--; }
 }
 
 function renderTabs() {
@@ -72,14 +76,14 @@ function renderTabs() {
   }).join('');
 
   el.querySelectorAll('.cancel-btn').forEach(btn => {
-    btn.addEventListener('click', async () => {
+    btn.addEventListener('click', () => action(async () => {
       const tabId = parseInt(btn.dataset.tabId, 10);
       btn.textContent = '…';
       btn.disabled = true;
       await send({ type: 'cancel_tab', tabId });
       delete state.pending[tabId];
       renderTabs();
-    });
+    }));
   });
 }
 
@@ -109,21 +113,20 @@ function renderManualList() {
     const v = patternValue(p);
     return `<div class="manual-item">
       <span class="manual-match" title="${esc(v)}">${esc(v)}</span>
-      <button class="remove-btn" data-key="${esc(patternKey(p))}" title="Remove">&times;</button>
+      <button class="remove-btn" data-key="${esc(ruleKey(p))}" title="Remove">&times;</button>
     </div>`;
   }).join('');
 
   el.querySelectorAll('.remove-btn').forEach(btn => {
-    btn.addEventListener('click', async () => {
+    btn.addEventListener('click', () => action(async () => {
       btn.disabled = true;
       const res = await send({ type: 'remove_manual_pattern', key: btn.dataset.key });
       if (res?.ok) {
         state.patterns = res.patterns;
         renderManualList();
         setStatus('Link removed from watch list');
-        await refresh();
       }
-    });
+    }).then(() => refresh(true)));
   });
 }
 
@@ -145,17 +148,21 @@ function renderRecent() {
     </div>`).join('');
 
   el.querySelectorAll('.reopen-btn').forEach(btn => {
-    btn.addEventListener('click', async () => {
+    btn.addEventListener('click', () => action(async () => {
       btn.disabled = true;
       const res = await send({ type: 'reopen', url: btn.dataset.url });
       if (res?.ok) { state.recentlyClosed = res.recentlyClosed; renderRecent(); }
-    });
+    }));
   });
 }
 
-async function refresh() {
+async function refresh(force = false) {
+  if (actionsInFlight > 0) return;
   const res = await send({ type: 'get_state' });
-  if (!res?.ok) return;
+  if (!res?.ok || actionsInFlight > 0) return;
+  const fingerprint = JSON.stringify(res);
+  if (!force && fingerprint === lastRendered) return;
+  lastRendered = fingerprint;
   state = res;
   document.getElementById('idle-label').textContent = `${res.idleMin} min idle`;
   renderPaused();
@@ -165,19 +172,22 @@ async function refresh() {
 }
 
 async function addPattern(fields) {
-  const res = await send({ type: 'add_manual_pattern', ...fields });
-  if (res?.ok) {
-    state.patterns = res.patterns;
-    renderManualList();
-    setStatus('Link added — matching tabs are now on the timer');
-    await refresh();
-  } else {
-    setStatus(res?.error || 'Could not add link');
-  }
-  return res?.ok;
+  const ok = await action(async () => {
+    const res = await send({ type: 'add_manual_pattern', ...fields });
+    if (res?.ok) {
+      state.patterns = res.patterns;
+      renderManualList();
+      setStatus('Link added — matching tabs are now on the timer');
+    } else {
+      setStatus(res?.error || 'Could not add link');
+    }
+    return res?.ok;
+  });
+  await refresh(true);
+  return ok;
 }
 
-document.getElementById('cancelAllBtn').addEventListener('click', async () => {
+document.getElementById('cancelAllBtn').addEventListener('click', () => action(async () => {
   const btn = document.getElementById('cancelAllBtn');
   btn.textContent = 'Cancelling…';
   btn.disabled = true;
@@ -186,28 +196,22 @@ document.getElementById('cancelAllBtn').addEventListener('click', async () => {
   renderTabs();
   btn.textContent = 'Cancel All';
   setStatus(`All cancelled at ${new Date().toLocaleTimeString()}`);
-});
+}));
 
-document.getElementById('pauseBtn').addEventListener('click', async () => {
+document.getElementById('pauseBtn').addEventListener('click', () => action(async () => {
   const res = await send({ type: 'set_paused', paused: !state.paused });
-  if (res?.ok) {
-    setStatus(res.paused ? 'Paused — timers cleared until you resume' : 'Resumed — open tabs rescanned');
-    await refresh();
-  }
-});
+  if (res?.ok) setStatus(res.paused ? 'Paused — timers cleared until you resume' : 'Resumed — open tabs rescanned');
+}).then(() => refresh(true)));
 
-document.getElementById('reloadBtn').addEventListener('click', async () => {
+document.getElementById('reloadBtn').addEventListener('click', () => action(async () => {
   const btn = document.getElementById('reloadBtn');
   btn.textContent = 'Reloading…';
   btn.disabled = true;
   const res = await send({ type: 'reload_config' });
   btn.textContent = 'Reload Config';
   btn.disabled = false;
-  if (res?.ok) {
-    setStatus(`Config reloaded — idle: ${res.idleMin} min`);
-    await refresh();
-  }
-});
+  if (res?.ok) setStatus(`Config reloaded — idle: ${res.idleMin} min`);
+}).then(() => refresh(true)));
 
 document.getElementById('addPatternBtn').addEventListener('click', async () => {
   const input = document.getElementById('patternInput');
@@ -230,12 +234,12 @@ document.getElementById('addCurrentBtn').addEventListener('click', async () => {
   await addPattern({ path: u.hostname + u.pathname, name: u.hostname.replace(/^www\./, '') });
 });
 
-document.getElementById('clearRecentBtn').addEventListener('click', async () => {
+document.getElementById('clearRecentBtn').addEventListener('click', () => action(async () => {
   await send({ type: 'clear_recent' });
   state.recentlyClosed = [];
   renderRecent();
-});
+}));
 
-refresh();
-setInterval(refresh, 5000);
+refresh(true);
+setInterval(() => refresh(), 5000);
 setInterval(tickCountdowns, 1000);

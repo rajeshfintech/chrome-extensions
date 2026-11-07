@@ -239,6 +239,16 @@ CHROME_BIN=/path/to/chromium node tests/smoke.mjs   # end-to-end: loads both ext
 
 The smoke test needs a Chromium or Chrome for Testing binary (Playwright's cached one works); Google Chrome itself ignores `--load-extension` since v137.
 
+### GitHub Actions
+
+Every pull request runs three workflows; all actions are pinned to commit SHAs.
+
+| Workflow | What it checks |
+|---|---|
+| `validate` | JS syntax, `node --test` matcher tests, ruff, `unittest` CLI tests, the two `rules.js` copies are identical, both CLIs start and validate their default configs |
+| `security` | Extension permission invariant (`tests/check_manifests.py`: no new permissions, host permissions, content scripts, remote code or relaxed CSP), TruffleHog verified-secret scan, ruff security rules, Semgrep (`p/javascript`, `p/python`, `p/secrets`), CodeQL for JavaScript and Python. Also runs weekly. |
+| `integration` | Loads both extensions into Chrome for Testing on Linux and drives them end to end (`tests/smoke.mjs`); runs the full `install → validate → sync → status → remove` CLI flow for both tools on a macOS runner, including bad-config rejection, version-drift warning and `--merge-defaults`. |
+
 Both extensions share `extension/rules.js`; edit the copy in `tab-auto-grouper` and copy it over, the test suite fails if they differ. CI runs all of the above on every push and PR.
 
 ## Project structure

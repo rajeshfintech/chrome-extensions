@@ -22,7 +22,7 @@ import shutil
 import subprocess
 import sys
 import time
-from datetime import datetime, UTC
+from datetime import datetime, timezone
 from pathlib import Path
 
 # ---------------------------------------------------------------------------
@@ -49,6 +49,30 @@ CHROME_BINARY      = '/Applications/Google Chrome.app/Contents/MacOS/Google Chro
 
 VALID_COLORS = {'grey', 'blue', 'red', 'yellow', 'green', 'pink', 'purple', 'cyan', 'orange'}
 RULE_KEYS    = ('domain', 'path', 'pattern', 'title')
+
+# Python's `re` accepts syntax that JavaScript's RegExp rejects or reads
+# differently; the extension compiles `pattern` rules as a JavaScript RegExp.
+JS_INCOMPATIBLE_REGEX = (
+    (re.compile(r'\(\?P[<=]'), 'named groups must be (?<name>...) not (?P<name>...)'),
+    (re.compile(r'\(\?[a-zA-Z]+\)'), 'inline flags like (?i) are not supported; patterns are already case-insensitive'),
+    (re.compile(r'\\[AZ]'), r'\A and \Z are not supported; use ^ and $'),
+    (re.compile(r'[+*?}]\+'), 'possessive quantifiers (++, *+, ?+) are not supported'),
+    (re.compile(r'\(\?#'), 'comments (?#...) are not supported'),
+)
+
+
+def check_js_regex(value):
+    """Return an error string if `value` will not compile or behave the same as a JS RegExp."""
+    for needle, why in JS_INCOMPATIBLE_REGEX:
+        if needle.search(value):
+            return f'regex uses Python-only syntax ({why})'
+    # JS named groups are (?<name>...); Python spells them (?P<name>...).
+    # Translate before compiling (lookbehinds (?<= / (?<! are untouched).
+    try:
+        re.compile(re.sub(r'\(\?<([A-Za-z_])', r'(?P<\1', value))
+    except re.error as e:
+        return f'invalid regex: {e}'
+    return None
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -101,10 +125,9 @@ def validate_rules(rules, where, errors):
         if not isinstance(value, str) or not value.strip():
             errors.append(f'{label}: {keys[0]} must be a non-empty string')
         elif keys[0] == 'pattern':
-            try:
-                re.compile(value)
-            except re.error as e:
-                errors.append(f'{label}: invalid regex: {e}')
+            problem = check_js_regex(value)
+            if problem:
+                errors.append(f'{label}: {problem}')
 
 
 def validate_config(config):
@@ -170,7 +193,7 @@ def load_user_config():
 
 def write_config_json(config, dest):
     payload = dict(config)
-    payload['generated_at'] = datetime.now(UTC).isoformat(timespec='seconds')
+    payload['generated_at'] = datetime.now(timezone.utc).isoformat(timespec='seconds')
     dest.write_text(json.dumps(payload, indent=2) + '\n')
 
 
@@ -258,7 +281,9 @@ def cmd_validate(_args):
 def cmd_config(_args):
     ensure_user_config()
     editor = shlex.split(os.environ.get('EDITOR') or 'nano')
-    subprocess.run([*editor, str(CONFIG_YAML)])
+    # $EDITOR is the user's own choice on their own machine; this is the standard
+    # `git config`-style editor hand-off, not untrusted input.
+    subprocess.run([*editor, str(CONFIG_YAML)])  # nosemgrep
 
 
 def cmd_install(args):

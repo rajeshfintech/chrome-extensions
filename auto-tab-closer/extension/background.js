@@ -49,28 +49,43 @@ function minutesFor(pattern, config) {
   return n > 0 ? n : (Number(config.idle_minutes) > 0 ? Number(config.idle_minutes) : DEFAULTS.idle_minutes);
 }
 
+function isWatchableUrl(url) {
+  return typeof url === 'string' && /^https?:\/\//i.test(url);
+}
+
 async function isPaused() {
   const { paused = false } = await chrome.storage.local.get('paused');
   return paused;
 }
 
 // ---------------------------------------------------------------------------
-// Pending state. Every read-modify-write goes through withPending(), which
-// serialises updates so concurrent tab events cannot clobber each other.
+// Stored state. Every read-modify-write of a storage key goes through
+// withStorage(), which serialises updates so concurrent tab events cannot
+// clobber each other's writes.
 // ---------------------------------------------------------------------------
 
-let pendingLock = Promise.resolve();
+let storageLock = Promise.resolve();
 
-function withPending(fn) {
-  const run = pendingLock.then(async () => {
-    const { pending = {} } = await chrome.storage.local.get('pending');
-    const result = await fn(pending);
-    await chrome.storage.local.set({ pending });
-    await updateBadge(pending);
+function withStorage(key, initial, fn) {
+  const run = storageLock.then(async () => {
+    const stored = await chrome.storage.local.get(key);
+    const value = stored[key] ?? initial;
+    const result = await fn(value);
+    await chrome.storage.local.set({ [key]: value });
     return result;
   });
-  pendingLock = run.catch(() => {});
+  storageLock = run.catch(() => {});
   return run;
+}
+
+async function withPending(fn) {
+  let pendingSnapshot;
+  const result = await withStorage('pending', {}, async (pending) => {
+    pendingSnapshot = pending;
+    return fn(pending);
+  });
+  await updateBadge(pendingSnapshot);
+  return result;
 }
 
 async function getPending() {
@@ -153,7 +168,7 @@ async function rescanTabs() {
   const tabs = await chrome.tabs.query({});
   const pending = await getPending();
   for (const tab of tabs) {
-    if (!tab.id || !tab.url) continue;
+    if (!tab.id || !isWatchableUrl(tab.url)) continue;
     const match = matchPattern(tab.url, tab.title, patterns);
     if (match && !pending[tab.id]) {
       await scheduleClose(tab.id, match, tab.url, tab.title);
@@ -163,10 +178,11 @@ async function rescanTabs() {
   }
 }
 
-async function recordClosed(info) {
-  const { recentlyClosed = [] } = await chrome.storage.local.get('recentlyClosed');
-  recentlyClosed.unshift({ url: info.url, title: info.title, name: info.name, closedAt: Date.now() });
-  await chrome.storage.local.set({ recentlyClosed: recentlyClosed.slice(0, RECENT_LIMIT) });
+function recordClosed(info) {
+  return withStorage('recentlyClosed', [], (list) => {
+    list.unshift({ url: info.url, title: info.title, name: info.name, closedAt: Date.now() });
+    list.splice(RECENT_LIMIT);
+  });
 }
 
 async function tabIsInFront(tabId) {
@@ -187,6 +203,12 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
     || changeInfo.status === 'complete'
     || changeInfo.title !== undefined;
   if (!relevant || !tab.url) return;
+  if (!isWatchableUrl(tab.url)) {
+    // chrome://, file://, extension pages: never on a timer, even if a broad
+    // `match` rule would hit them. Cancel if the tab was pending before.
+    await cancelClose(tabId, 'left http(s)');
+    return;
+  }
 
   const patterns = await getAllPatterns();
   if (changeInfo.title !== undefined && changeInfo.url === undefined

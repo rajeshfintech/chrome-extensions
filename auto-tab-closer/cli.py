@@ -47,6 +47,30 @@ CHROME_BINARY      = '/Applications/Google Chrome.app/Contents/MacOS/Google Chro
 
 RULE_KEYS = ('domain', 'path', 'match', 'pattern', 'title')
 
+# Python's `re` accepts syntax that JavaScript's RegExp rejects or reads
+# differently; the extension compiles `pattern` rules as a JavaScript RegExp.
+JS_INCOMPATIBLE_REGEX = (
+    (re.compile(r'\(\?P[<=]'), 'named groups must be (?<name>...) not (?P<name>...)'),
+    (re.compile(r'\(\?[a-zA-Z]+\)'), 'inline flags like (?i) are not supported; patterns are already case-insensitive'),
+    (re.compile(r'\\[AZ]'), r'\A and \Z are not supported; use ^ and $'),
+    (re.compile(r'[+*?}]\+'), 'possessive quantifiers (++, *+, ?+) are not supported'),
+    (re.compile(r'\(\?#'), 'comments (?#...) are not supported'),
+)
+
+
+def check_js_regex(value):
+    """Return an error string if `value` will not compile or behave the same as a JS RegExp."""
+    for needle, why in JS_INCOMPATIBLE_REGEX:
+        if needle.search(value):
+            return f'regex uses Python-only syntax ({why})'
+    # JS named groups are (?<name>...); Python spells them (?P<name>...).
+    # Translate before compiling (lookbehinds (?<= / (?<! are untouched).
+    try:
+        re.compile(re.sub(r'\(\?<([A-Za-z_])', r'(?P<\1', value))
+    except re.error as e:
+        return f'invalid regex: {e}'
+    return None
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -116,10 +140,9 @@ def validate_config(cfg):
         if not isinstance(value, str) or not value.strip():
             errors.append(f'{label}: {keys[0]} must be a non-empty string')
         elif keys[0] == 'pattern':
-            try:
-                re.compile(value)
-            except re.error as e:
-                errors.append(f'{label}: invalid regex: {e}')
+            problem = check_js_regex(value)
+            if problem:
+                errors.append(f'{label}: {problem}')
         if 'idle_minutes' in p and (isinstance(p['idle_minutes'], bool)
                                     or not isinstance(p['idle_minutes'], (int, float))
                                     or p['idle_minutes'] <= 0):
@@ -325,7 +348,9 @@ def cmd_config(args):
         info('Run:  tabclose sync   to push it to the extension')
         return
     editor = shlex.split(os.environ.get('EDITOR') or 'nano')
-    subprocess.run([*editor, str(USER_CONFIG_JSON)])
+    # $EDITOR is the user's own choice on their own machine; this is the standard
+    # `git config`-style editor hand-off, not untrusted input.
+    subprocess.run([*editor, str(USER_CONFIG_JSON)])  # nosemgrep
 
 
 def cmd_validate(_args):
@@ -350,8 +375,8 @@ def cmd_sync(_args):
     info(f'warn_minutes : {cfg.get("warn_minutes", 1)}')
     info(f'patterns     : {len(cfg.get("patterns", []))} site(s)')
     print()
-    info('The extension picks up config changes within a few seconds.')
-    info('Or click "Reload Config" in the extension popup.')
+    info('New patterns apply within a few seconds. Timers already running keep')
+    info('the old idle_minutes until you click "Reload Config" in the popup.')
     print()
     warn_if_outdated()
 
