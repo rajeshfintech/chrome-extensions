@@ -234,16 +234,25 @@ def get_profiles():
     return profiles
 
 
+def no_browser():
+    """Skip launching Chrome in CI or when explicitly asked (NO_BROWSER=1)."""
+    return bool(os.environ.get('CI') or os.environ.get('NO_BROWSER'))
+
+
 def open_chrome_for_profile(folder):
-    """Open chrome://extensions in a specific Chrome profile."""
+    """Open chrome://extensions in a specific Chrome profile (never blocks)."""
+    if no_browser():
+        return
     if Path(CHROME_BINARY).exists():
         subprocess.Popen([CHROME_BINARY, f'--profile-directory={folder}', 'chrome://extensions'])
     else:
-        subprocess.run(['open', '-a', 'Google Chrome', 'chrome://extensions'], check=False)
+        subprocess.Popen(['open', '-a', 'Google Chrome', 'chrome://extensions'])
 
 
 def open_chrome_extensions():
-    subprocess.run(['open', '-a', 'Google Chrome', 'chrome://extensions'], check=False)
+    if no_browser():
+        return
+    subprocess.Popen(['open', '-a', 'Google Chrome', 'chrome://extensions'])
 
 # ---------------------------------------------------------------------------
 # Commands

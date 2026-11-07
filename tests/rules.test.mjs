@@ -49,7 +49,7 @@ test('match rule is a raw case-insensitive substring', () => {
 test('pattern rule is a regex on the full URL; invalid regexes never match', () => {
   const p = urlParts('https://acme.okta.com/login/login.htm');
   assert.ok(ruleScore({ pattern: '^https://[^/]+\\.okta\\.com/login' }, p) > 0);
-  assert.equal(ruleScore({ pattern: '^https://okta\\.com' }, p), 0);
+  assert.equal(ruleScore({ pattern: '^https://okta\\.com/' }, p), 0);
   assert.equal(ruleScore({ pattern: '[' }, p), 0);
 });
 

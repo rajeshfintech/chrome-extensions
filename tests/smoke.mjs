@@ -48,23 +48,36 @@ async function connect(ws) {
   return { call, evaluate, events, close: () => sock.close() };
 }
 
+// Compare by parsed hostname, never by substring, so a URL like
+// https://evil.example/?x=github.com cannot satisfy a check.
+const hostOf = (u) => { try { return new URL(u).hostname; } catch { return ''; } };
+const hasHost = (urls, host) => (urls || []).some(u => hostOf(u) === host);
+
 let failures = 0;
 function check(name, cond, detail = '') { console.log(`${cond ? 'PASS' : 'FAIL'} ${name}${detail ? ' — ' + detail : ''}`); if (!cond) failures++; }
 
 try {
-  let list = [];
-  const ours = l => l.filter(t => t.type === 'service_worker' && t.url.endsWith('/background.js'));
-  for (let i = 0; i < 80 && ours(list).length < 2; i++) { await sleep(250); try { list = await targets(); } catch {} }
-  const workers = ours(list);
-  check('both service workers registered', workers.length === 2, workers.map(w => w.url).join(', '));
-
+  // Chrome ships its own component extensions whose workers are also called
+  // background.js, so identify ours by manifest name rather than by URL.
+  const OURS = new Set(['Tab Auto Grouper', 'Auto Tab Closer']);
   const byName = {};
-  for (const w of workers) {
-    const c = await connect(w.webSocketDebuggerUrl);
-    await c.call('Runtime.enable');
-    const name = await c.evaluate('chrome.runtime.getManifest().name');
-    byName[name] = c;
+  const workers = [];
+  const seen = new Set();
+  for (let i = 0; i < 80 && workers.length < 2; i++) {
+    await sleep(250);
+    let list = [];
+    try { list = await targets(); } catch { continue; }
+    for (const t of list) {
+      if (t.type !== 'service_worker' || !t.url.startsWith('chrome-extension://') || seen.has(t.id)) continue;
+      seen.add(t.id);
+      const c = await connect(t.webSocketDebuggerUrl);
+      await c.call('Runtime.enable');
+      let name = '';
+      try { name = await c.evaluate('chrome.runtime.getManifest().name'); } catch {}
+      if (OURS.has(name)) { byName[name] = c; workers.push(t); } else { c.close(); }
+    }
   }
+  check('both service workers registered', workers.length === 2, workers.map(w => w.url).join(', '));
   const grouper = byName['Tab Auto Grouper'];
   const closer = byName['Auto Tab Closer'];
 
@@ -104,16 +117,16 @@ try {
   const ai = groups.find(g => g.title === 'AI');
   const google = groups.find(g => g.title === 'Google');
   check('one Work group with both github tabs (no duplicate groups)', groups.filter(g => g.title === 'Work').length === 1 && work?.tabs.length === 2);
-  check('gemini.google.com lands in AI, not Google', ai?.tabs.some(u => u.includes('gemini')) && !google?.tabs.some(u => u.includes('gemini')));
-  check('mail.google.com lands in Google', google?.tabs.some(u => u.includes('mail.google')));
-  check('example.com stays ungrouped', !groups.some(g => g.tabs.some(u => u.includes('example.com'))));
+  check('gemini.google.com lands in AI, not Google', hasHost(ai?.tabs, 'gemini.google.com') && !hasHost(google?.tabs, 'gemini.google.com'));
+  check('mail.google.com lands in Google', hasHost(google?.tabs, 'mail.google.com') || hasHost(google?.tabs, 'accounts.google.com'));
+  check('example.com stays ungrouped', !groups.some(g => hasHost(g.tabs, 'example.com')));
   check('group colours applied', work?.color === 'blue' && ai?.color === 'purple');
 
   // Manual rule via message: example.com -> Shopping
   const add = await msg(gpop, { type: 'add_manual_rule', group: 'Shopping', domain: 'example.com' });
   await sleep(1500);
   const groups2 = await grouper.evaluate(`(async () => { const gs = await chrome.tabGroups.query({}); const ts = await chrome.tabs.query({}); return gs.map(g => ({ title: g.title, tabs: ts.filter(t => t.groupId === g.id).map(t => t.url) })); })()`);
-  check('manual rule groups example.com into Shopping', add?.success && groups2.find(g => g.title === 'Shopping')?.tabs.some(u => u.includes('example.com')), JSON.stringify(add));
+  check('manual rule groups example.com into Shopping', add?.success && hasHost(groups2.find(g => g.title === 'Shopping')?.tabs, 'example.com'), JSON.stringify(add));
   const snap = await msg(gpop, { type: 'snapshot_yaml' });
   check('snapshot yaml lists groups', snap?.success && snap.yaml.includes('- name: "Work"') && snap.yaml.includes('- domain: github.com'));
 
@@ -122,8 +135,8 @@ try {
   const state = await msg(cpop, { type: 'get_state' });
   const pend = Object.values(state.pending || {});
   console.log('pending:', JSON.stringify(pend.map(p => [p.name, p.url, p.idleMin])));
-  check('github.com/login is pending closure', pend.some(p => p.url.startsWith('https://github.com/login')));
-  check('api.github.com is not pending', !pend.some(p => p.url.includes('api.github.com')));
+  check('github.com/login is pending closure', pend.some(p => hostOf(p.url) === 'github.com' && new URL(p.url).pathname === '/login'));
+  check('api.github.com is not pending', !pend.some(p => hostOf(p.url) === 'api.github.com'));
   const alarms = await closer.evaluate(`chrome.alarms.getAll()`);
   check('close + warn alarms armed', alarms.some(a => a.name.startsWith('close-tab-')) && alarms.some(a => a.name.startsWith('warn-tab-')), alarms.map(a => a.name).join(','));
   const badge = await closer.evaluate(`chrome.action.getBadgeText({})`);

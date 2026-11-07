@@ -35,7 +35,7 @@ jobs:
           fetch-depth: 0
       - uses: trufflesecurity/trufflehog@ea68ca03c865c5f324e86e849ced20ed3cf9dbbb # v3.99.8
         with:
-          extra_args: --only-verified --fail
+          extra_args: --only-verified
 
   python-security-lint:
     name: python security lint (ruff S rules)

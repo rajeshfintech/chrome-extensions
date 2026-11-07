@@ -45,7 +45,7 @@ After `tabgroups install` or `tabclose install`, do this once for each Chrome pr
 3. Enable **Developer mode** (toggle, top-right)
 4. Click **Load unpacked** → select the path shown by the install command
 
-Chrome remembers the extension across restarts. After a `brew upgrade`, run the install command again and click the **↺ reload** icon on the extension card in `chrome://extensions`. `status` and `sync` warn you when the installed extension is older than the one the CLI ships.
+Set `NO_BROWSER=1` to stop the CLIs from opening Chrome windows (CI does this automatically). Chrome remembers the extension across restarts. After a `brew upgrade`, run the install command again and click the **↺ reload** icon on the extension card in `chrome://extensions`. `status` and `sync` warn you when the installed extension is older than the one the CLI ships.
 
 ---
 
