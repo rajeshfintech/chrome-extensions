@@ -38,12 +38,21 @@ tabclose sync            # validate + push config changes to the extension
 
 ## One-time Chrome setup (per profile)
 
-After `tabgroups install` or `tabclose install`, do this once for each Chrome profile:
+`tabgroups install` and `tabclose install` only copy files to disk. Chrome does not pick them up until you load each extension once, in each Chrome profile where you want it:
 
 1. Open Chrome with that profile active
 2. Go to `chrome://extensions`
 3. Enable **Developer mode** (toggle, top-right)
-4. Click **Load unpacked** → select the path shown by the install command
+4. Click **Load unpacked**, press **Cmd+Shift+G**, paste the folder for the extension, press Enter, then click **Select**:
+
+| Extension | Folder to load |
+|---|---|
+| Tab Auto Grouper | `~/Library/Application Support/chrome-tab-grouper/extension` |
+| Auto Tab Closer | `~/Library/Application Support/auto-tab-closer/extension` |
+
+Each extension is loaded separately: loading Tab Auto Grouper does not add Auto Tab Closer. `~/Library` is hidden in the macOS file picker, which is why Cmd+Shift+G is the easy way in. `tabgroups status` / `tabclose status` print the same folder.
+
+**Extension missing from `chrome://extensions`?** It was never loaded in that profile (or was removed). Repeat step 4 with its folder. If the card appears but is greyed out or shows an error, check `chrome://policy`: a managed (work) profile can restrict extensions.
 
 Set `NO_BROWSER=1` to stop the CLIs from opening Chrome windows (CI does this automatically). Chrome remembers the extension across restarts. After a `brew upgrade`, run the install command again. From v1.2.1 each extension notices its files were replaced and reloads itself within a few seconds of its next tab event; if a popup ever shows **Reload extension**, click it. Upgrading from 1.2.0 or older needs one manual click on the **↺ reload** icon in `chrome://extensions`. `status` and `sync` warn you when the installed extension is older than the one the CLI ships.
 
