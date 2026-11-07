@@ -34,8 +34,10 @@ jobs:
         run: ruff check .
       - name: CLI tests
         run: python -m unittest discover -s tests -v
-      - name: Shared rules.js copies are identical
-        run: cmp tab-auto-grouper/extension/rules.js auto-tab-closer/extension/rules.js
+      - name: Shared module copies are identical
+        run: |
+          cmp tab-auto-grouper/extension/rules.js auto-tab-closer/extension/rules.js
+          cmp tab-auto-grouper/extension/self-update.js auto-tab-closer/extension/self-update.js
       - name: CLIs start
         run: |
           python tab-auto-grouper/cli.py --help

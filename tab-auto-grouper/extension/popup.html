@@ -108,6 +108,18 @@
     .remove-btn:hover { color: #dc2626; background: none; }
 
     #status { color: #5f6368; font-size: 11px; margin-top: 8px; text-align: center; }
+
+    #reload-banner {
+      margin-bottom: 10px;
+      padding: 8px 10px;
+      border-radius: 6px;
+      background: #fef7e0;
+      border: 1px solid #f9ab00;
+      font-size: 12px;
+      color: #202124;
+    }
+    #reload-banner[hidden] { display: none; }
+    #reload-banner p { margin-bottom: 6px; }
   </style>
 </head>
 <body>
@@ -117,6 +129,10 @@
     <span id="loaded-label"></span>
   </header>
 
+  <div id="reload-banner" hidden>
+    <p>The extension was updated but Chrome is still running the old background code.</p>
+    <button id="selfReloadBtn">Reload extension</button>
+  </div>
   <div id="groups"><div class="empty">Loading…</div></div>
 
   <button id="groupAllBtn">Group all open tabs</button>

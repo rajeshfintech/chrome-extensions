@@ -45,7 +45,7 @@ After `tabgroups install` or `tabclose install`, do this once for each Chrome pr
 3. Enable **Developer mode** (toggle, top-right)
 4. Click **Load unpacked** → select the path shown by the install command
 
-Set `NO_BROWSER=1` to stop the CLIs from opening Chrome windows (CI does this automatically). Chrome remembers the extension across restarts. After a `brew upgrade`, run the install command again and click the **↺ reload** icon on the extension card in `chrome://extensions`. `status` and `sync` warn you when the installed extension is older than the one the CLI ships.
+Set `NO_BROWSER=1` to stop the CLIs from opening Chrome windows (CI does this automatically). Chrome remembers the extension across restarts. After a `brew upgrade`, run the install command again. From v1.2.1 each extension notices its files were replaced and reloads itself within a few seconds of its next tab event; if a popup ever shows **Reload extension**, click it. Upgrading from 1.2.0 or older needs one manual click on the **↺ reload** icon in `chrome://extensions`. `status` and `sync` warn you when the installed extension is older than the one the CLI ships.
 
 ---
 
@@ -235,6 +235,7 @@ python3 -m unittest discover -s tests -v     # CLI config validation tests
 uvx ruff check .                             # lint
 python3 tests/test_cli.py --regen            # regenerate the bundled tab-auto-grouper/extension/config.json after editing config.yaml
 CHROME_BIN=/path/to/chromium node tests/smoke.mjs   # end-to-end: loads both extensions in a real browser (local only)
+CHROME_BIN=/path/to/chromium node tests/upgrade.mjs ...   # upgrade path: stale-worker banner and self-reload (see file header)
 ```
 
 The smoke test needs a Chromium or Chrome for Testing binary (Playwright's cached one works); Google Chrome itself ignores `--load-extension` since v137.
@@ -247,7 +248,7 @@ Every pull request runs three workflows; all actions are pinned to commit SHAs.
 |---|---|
 | `validate` | JS syntax, `node --test` matcher tests, ruff, `unittest` CLI tests, the two `rules.js` copies are identical, both CLIs start and validate their default configs |
 | `security` | Extension permission invariant (`tests/check_manifests.py`: no new permissions, host permissions, content scripts, remote code or relaxed CSP), TruffleHog verified-secret scan, ruff security rules, Semgrep (`p/javascript`, `p/python`, `p/secrets`), CodeQL for JavaScript and Python. Also runs weekly. |
-| `integration` | Loads both extensions into Chrome for Testing on Linux and drives them end to end (`tests/smoke.mjs`); runs the full `install → validate → sync → status → remove` CLI flow for both tools on a macOS runner, including bad-config rejection, version-drift warning and `--merge-defaults`. |
+| `integration` | Loads both extensions into Chrome for Testing on Linux and drives them end to end (`tests/smoke.mjs`), then checks the upgrade path from the previous releases (`tests/upgrade.mjs`); runs the full `install → validate → sync → status → remove` CLI flow for both tools on a macOS runner, including bad-config rejection, version-drift warning and `--merge-defaults`. |
 
 Both extensions share `extension/rules.js`; edit the copy in `tab-auto-grouper` and copy it over, the test suite fails if they differ. CI runs all of the above on every push and PR.
 
@@ -260,6 +261,7 @@ chrome-extensions/
 │   │   ├── manifest.json
 │   │   ├── background.js   Service worker — groups tabs, merges popup rules
 │   │   ├── rules.js        Shared rule matcher (identical copy in auto-tab-closer)
+│   │   ├── self-update.js  Shared: reload when installed files change (identical copy)
 │   │   ├── popup.html/js   Toolbar popup
 │   │   ├── config.json     Bundled default, generated from config.yaml
 │   │   └── icons/
@@ -271,6 +273,7 @@ chrome-extensions/
 │   │   ├── manifest.json
 │   │   ├── background.js   Service worker — detects login redirects, manages alarms
 │   │   ├── rules.js        Shared rule matcher
+│   │   ├── self-update.js  Shared self-reload after install
 │   │   ├── popup.html/js   Toolbar popup with live countdown
 │   │   ├── config.json     Bundled default config (patterns + idle_minutes)
 │   │   └── icons/

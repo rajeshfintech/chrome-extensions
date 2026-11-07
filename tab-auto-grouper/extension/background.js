@@ -3,6 +3,7 @@
 // added from the popup, and keeps tabs in the right groups.
 
 import { matchGroup, urlParts, usesTitles, ruleKey, normaliseDomain } from './rules.js';
+import { reloadIfUpdatedOnDisk } from './self-update.js';
 
 // The 9 colors Chrome's tabGroups API accepts. Anything else falls back to grey.
 const VALID_COLORS = new Set(['grey', 'blue', 'red', 'yellow', 'green', 'pink', 'purple', 'cyan', 'orange']);
@@ -34,6 +35,8 @@ async function loadConfig(force = false) {
     const config = await resp.json();
     configCache = config;
     configLoadedAt = now;
+    // `tabgroups install` replaced the extension files: pick up the new code.
+    if (await reloadIfUpdatedOnDisk('TabGrouper')) return config;
 
     const stamp = stampOf(config);
     if (stamp !== configStamp) {

@@ -326,7 +326,8 @@ def cmd_install(args):
     2. Click   "Load unpacked"
     3. Select:  {INSTALLED_EXT}
   Chrome remembers the extension across restarts once loaded.
-  Already loaded?  Just click the reload icon (↺) on the extension card.
+  Already loaded?  From v1.2.1 it reloads itself within a few seconds.
+  Upgrading from 1.2.0 or older: click the reload icon (↺) once.
   ─────────────────────────────────────────────────────────────────────────
 """)
 

@@ -10,10 +10,26 @@ import { urlParts, ruleScore, matchGroup, matchPattern, ruleKey, usesTitles }
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 
-test('both extensions ship the same rules.js', () => {
-  const a = readFileSync(join(root, 'tab-auto-grouper/extension/rules.js'), 'utf8');
-  const b = readFileSync(join(root, 'auto-tab-closer/extension/rules.js'), 'utf8');
-  assert.equal(a, b, 'copy tab-auto-grouper/extension/rules.js over auto-tab-closer/extension/rules.js');
+for (const shared of ['rules.js', 'self-update.js']) {
+  test(`both extensions ship the same ${shared}`, () => {
+    const a = readFileSync(join(root, 'tab-auto-grouper/extension', shared), 'utf8');
+    const b = readFileSync(join(root, 'auto-tab-closer/extension', shared), 'utf8');
+    assert.equal(a, b, `copy tab-auto-grouper/extension/${shared} over auto-tab-closer/extension/${shared}`);
+  });
+}
+
+test('isStaleWorkerReply spots an old or missing background worker', async () => {
+  const { isStaleWorkerReply } = await import('../tab-auto-grouper/extension/self-update.js');
+  // old 1.1.x grouper get_status reply: no `groups`
+  assert.ok(isStaleWorkerReply({ configLoadedAt: 1, groupCount: 5, groupNames: ['a'] }, 'groups'));
+  // unknown message type on an old worker
+  assert.ok(isStaleWorkerReply({ success: false, error: 'The message port closed before a response was received.' }, 'success'));
+  assert.ok(isStaleWorkerReply({ ok: false, error: 'Could not establish connection. Receiving end does not exist.' }, 'ok'));
+  assert.ok(isStaleWorkerReply(undefined, 'ok'));
+  // current worker replies, including its own error path
+  assert.ok(!isStaleWorkerReply({ groups: [], configLoadedAt: 1 }, 'groups'));
+  assert.ok(!isStaleWorkerReply({ ok: true, pending: {} }, 'ok'));
+  assert.ok(!isStaleWorkerReply({ success: false, error: 'Pick a group' }, 'success'));
 });
 
 test('urlParts strips www and trailing slashes', () => {
