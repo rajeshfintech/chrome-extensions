@@ -225,7 +225,10 @@ try {
     } catch { /* not ready */ }
   }
   check('closer worker back after enabling incognito', !!closer2, extIds.join(','));
+  if (!closer2) throw new Error('closer worker did not come back; skipping incognito checks');
   const allowed = await closer2.evaluate(`chrome.extension.isAllowedIncognitoAccess()`);
+  const reArmed = Object.values((await closer2.evaluate(`chrome.storage.session.get('pending')`)).pending || {});
+  check('pending timers re-armed after the extension restart', reArmed.some(p => !p.incognito), JSON.stringify(reArmed.map(p => p.name)));
   check('closer allowed in incognito', allowed === true);
   const win = await closer2.evaluate(`chrome.windows.create({ incognito: true, url: 'https://github.com/login' }).then(w => ({ id: w.id, incognito: w.incognito }))`);
   await sleep(3000);
@@ -234,6 +237,7 @@ try {
   // Close it via the alarm path and check it leaves no trace in Recently closed.
   // A focused, active tab is never closed, so put another tab in front first.
   const incTab = (await closer2.evaluate(`chrome.tabs.query({ windowId: ${win.id} })`)).find(tb => hostOf(tb.url) === 'github.com');
+  if (!incTab) throw new Error('incognito github.com tab not found');
   await closer2.evaluate(`chrome.tabs.create({ windowId: ${win.id}, url: 'https://example.com/', active: true })`);
   await sleep(500);
   await closer2.evaluate(`chrome.storage.local.set({ recentlyClosed: [] })`);

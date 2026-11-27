@@ -229,7 +229,10 @@ Chrome restarts the extension when you flip it. Repeat in each profile where you
 - An incognito tab that gets closed is **not** added to **Recently closed**.
 - Its warning notification says "Incognito tab" instead of the page title, because macOS keeps notification text in Notification Center.
 
-The popup marks incognito tabs in the pending list.
+The popup marks incognito tabs in the pending list. Two things to know:
+
+- The popup is shared between normal and incognito windows, so pending incognito tabs are listed in a normal window's popup too (and the other way round).
+- **+ Watch current tab** in an incognito window saves that site as a rule in `chrome.storage.local`, like any other watched link. Use it there only for sites you are happy to keep in the rule list.
 
 ### Permissions
 

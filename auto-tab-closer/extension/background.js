@@ -253,8 +253,8 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
     chrome.notifications.create(WARN_PREFIX + tabId, {
       type: 'basic',
       iconUrl: chrome.runtime.getURL('icons/icon128.png'),
-      title: `Closing in ${minutes} min: ${info.name}`,
-      // macOS keeps notification text in Notification Center: no incognito titles there.
+      // macOS keeps notification text in Notification Center: nothing about incognito tabs there.
+      title: info.incognito ? `Closing in ${minutes} min` : `Closing in ${minutes} min: ${info.name}`,
       message: info.incognito ? 'Incognito tab' : (info.title || info.url),
       buttons: [{ title: 'Keep open' }],
       priority: 0
@@ -318,12 +318,25 @@ async function resetSession() {
     .filter(a => a.name.startsWith(CLOSE_PREFIX) || a.name.startsWith(WARN_PREFIX))
     .map(a => chrome.alarms.clear(a.name)));
   await withPending((pending) => { for (const k of Object.keys(pending)) delete pending[k]; });
-  await chrome.storage.local.remove('pending');   // written to disk by <= 1.2.1
   await rescanTabs();
 }
 
 chrome.runtime.onStartup.addListener(resetSession);
-chrome.runtime.onInstalled.addListener(resetSession);
+chrome.runtime.onInstalled.addListener(async () => {
+  await chrome.storage.local.remove('pending');   // written to disk by <= 1.2.1
+  await resetSession();
+});
+
+// storage.session is also wiped when the extension restarts without a browser
+// restart or install (Allow in Incognito toggle, disable/enable), and neither
+// event above fires then. The `scanned` flag lives in the same store, so it is
+// gone exactly when the timers are: rescan once per extension lifetime.
+(async () => {
+  const { scanned } = await chrome.storage.session.get('scanned');
+  if (scanned) return;
+  await chrome.storage.session.set({ scanned: true });
+  await rescanTabs();
+})();
 
 // ---------------------------------------------------------------------------
 // Popup messages
