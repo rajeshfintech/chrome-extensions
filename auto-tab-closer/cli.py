@@ -3,9 +3,11 @@
 tabclose — Auto Tab Closer CLI
 
 Commands:
-  install               Copy extension to ~/Library/Application Support and guide Chrome setup
+  install               Copy extension to its install folder and guide Chrome setup
   install --profile P   Install for a specific profile (folder name, e.g. "Default")
   remove                Remove installed extension files
+  remove --legacy       Remove only the pre-Homebrew-folder copy in ~/Library/Application Support
+  refresh               Update extension files, keep its config.json (run by brew upgrade)
   status                Show paths and installation status
   list-profiles         List Chrome profiles on this machine
   config                Open config.json in $EDITOR
@@ -38,7 +40,13 @@ DEFAULT_CONFIG     = EXTENSION_TEMPLATE / 'config.json'
 USER_CONFIG_DIR    = Path.home() / '.config' / 'auto-tab-closer'
 USER_CONFIG_JSON   = USER_CONFIG_DIR / 'config.json'
 
-INSTALL_PATH       = Path.home() / 'Library' / 'Application Support' / 'auto-tab-closer'
+# Installed extension: the folder Chrome loads. The Homebrew wrapper sets
+# TABCLOSE_HOME to $(brew --prefix)/var/auto-tab-closer, which the formula's
+# post_install refreshes on every `brew upgrade` (see cmd_refresh). Without it
+# (running from a checkout) the folder is the original one in ~/Library.
+LEGACY_INSTALL_PATH = Path.home() / 'Library' / 'Application Support' / 'auto-tab-closer'
+INSTALL_PATH       = (Path(os.environ['TABCLOSE_HOME']).expanduser().resolve() if os.environ.get('TABCLOSE_HOME')
+                      else LEGACY_INSTALL_PATH)
 INSTALLED_EXT      = INSTALL_PATH / 'extension'
 INSTALLED_CONFIG   = INSTALLED_EXT / 'config.json'
 
@@ -205,7 +213,7 @@ def warn_if_outdated():
     template, installed = read_version(EXTENSION_TEMPLATE), read_version(INSTALLED_EXT)
     if template and installed and template != installed:
         err(f'Installed extension is v{installed}, this CLI ships v{template}.')
-        info('Run:  tabclose install   then reload the extension in chrome://extensions')
+        info('Run:  tabclose refresh   (keeps your config; the extension reloads itself)')
         print()
 
 
@@ -280,10 +288,12 @@ def cmd_install(args):
     2. Click   "Load unpacked"
     3. Select:  {INSTALLED_EXT}
   Chrome remembers the extension across restarts once loaded.
-  Already loaded?  From v1.2.1 it reloads itself within a few seconds.
-  Upgrading from 1.2.0 or older: click the reload icon (↺) once.
+  Already loaded from this folder?  It reloads itself within a few seconds,
+  and `brew upgrade` keeps the folder current from now on.
   ─────────────────────────────────────────────────────────────────────────
 """)
+    if legacy_copy_in_use():
+        print_legacy_migration()
 
     for i, p in enumerate(targets):
         print(f'  [{i+1}/{len(targets)}] Opening Chrome — {p["name"]}  ({p["folder"]})')
@@ -292,10 +302,70 @@ def cmd_install(args):
             time.sleep(1)
 
 
-def cmd_remove(_args):
-    if INSTALL_PATH.exists():
-        shutil.rmtree(INSTALL_PATH)
-        ok(f'Removed {INSTALL_PATH}')
+def cmd_refresh(_args):
+    """Replace the extension files and keep the config.json already installed.
+
+    The Homebrew formula runs this from post_install on every install and
+    upgrade. Homebrew's sandbox blocks reading the home folder there, so it
+    must touch nothing outside INSTALL_PATH: the config the last `install` or
+    `sync` wrote is carried over, and a first install gets the bundled default.
+    """
+    # extension.old holds the config if an earlier swap died between its two renames.
+    sources = (INSTALLED_CONFIG, INSTALL_PATH / 'extension.old' / 'config.json')
+    previous = next((f.read_bytes() for f in sources if f.exists()), None)
+
+    def keep_config(dest):
+        if previous is not None:
+            dest.write_bytes(previous)
+
+    install_extension_atomically(keep_config)
+    ok(f'Extension v{read_version(INSTALLED_EXT)} refreshed at {INSTALLED_EXT}'
+       + ('' if previous is not None else '  (bundled config; run: tabclose install)'))
+
+
+def legacy_copy_in_use():
+    """True when an older install left a copy Chrome may still be loading."""
+    return INSTALL_PATH != LEGACY_INSTALL_PATH and (LEGACY_INSTALL_PATH / 'extension').exists()
+
+
+def print_legacy_migration():
+    print(f"""  ── Moving to the Homebrew-managed folder (once per profile) ─────────────
+    The extension now lives in {INSTALLED_EXT},
+    which `brew upgrade` keeps current on its own.
+    In chrome://extensions, Remove the old "Auto Tab Closer" card (loaded from
+    {LEGACY_INSTALL_PATH / 'extension'}), then Load unpacked the new folder.
+    Chrome treats it as a new extension: popup settings stored by the old one
+    are not carried over.
+    When every profile is done:  tabclose remove --legacy
+  ─────────────────────────────────────────────────────────────────────────
+""")
+
+
+def remove_install(base):
+    """Delete only the folders this CLI creates under `base`, then `base` if empty.
+
+    `base` can come from an environment variable, so never rmtree it wholesale.
+    """
+    managed = [base / d for d in ('extension', 'extension.new', 'extension.old')]
+    present = [d for d in managed if d.exists()]
+    for d in present:
+        shutil.rmtree(d)
+    try:
+        base.rmdir()
+    except OSError:
+        pass   # missing, or holds files that are not ours
+    return bool(present)
+
+
+def cmd_remove(args):
+    if args.legacy:
+        if INSTALL_PATH != LEGACY_INSTALL_PATH and remove_install(LEGACY_INSTALL_PATH):
+            ok(f'Removed {LEGACY_INSTALL_PATH}')
+        else:
+            info('No old copy to remove.')
+        return
+    if remove_install(INSTALL_PATH):
+        ok(f'Removed {INSTALLED_EXT}')
     else:
         info('Nothing to remove (not installed).')
     print()
@@ -335,6 +405,9 @@ def cmd_status(_args):
             err('config.json in ~/.config is newer than the installed one  →  run: tabclose sync')
     else:
         err('config.json missing  →  run: tabclose install  or  tabclose sync')
+
+    if legacy_copy_in_use():
+        err(f'Old copy still at {LEGACY_INSTALL_PATH}  →  run: tabclose install  for the move steps')
 
     print()
     warn_if_outdated()
@@ -390,6 +463,10 @@ def cmd_validate(_args):
 
 def cmd_sync(_args):
     ensure_user_config()
+    if legacy_copy_in_use():
+        err(f'Chrome may still load the old copy in {LEGACY_INSTALL_PATH}: this sync does not reach it.')
+        info('Run:  tabclose install   for the one-time move steps')
+        print()
     if not INSTALLED_EXT.exists():
         err('Extension not installed yet. Run:  tabclose install')
         sys.exit(1)
@@ -425,7 +502,10 @@ def main():
     p_install.add_argument('--profile', metavar='NAME',
                            help='Profile folder name (e.g. Default, "Profile 2")')
 
-    sub.add_parser('remove',        help='Remove installed extension files')
+    p_remove = sub.add_parser('remove', help='Remove installed extension files')
+    p_remove.add_argument('--legacy', action='store_true',
+                          help='Remove only the old copy in ~/Library/Application Support')
+    sub.add_parser('refresh',       help='Update extension files, keep config.json (run by brew upgrade)')
     sub.add_parser('status',        help='Show paths and installation status')
     sub.add_parser('list-profiles', help='List Chrome profiles')
     p_config = sub.add_parser('config', help='Open config.json in $EDITOR')
@@ -438,6 +518,7 @@ def main():
     dispatch = {
         'install':       cmd_install,
         'remove':        cmd_remove,
+        'refresh':       cmd_refresh,
         'status':        cmd_status,
         'list-profiles': cmd_list_profiles,
         'config':        cmd_config,

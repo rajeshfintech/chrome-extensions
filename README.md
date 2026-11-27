@@ -38,7 +38,7 @@ tabclose sync            # validate + push config changes to the extension
 
 ## One-time Chrome setup (per profile)
 
-`tabgroups install` and `tabclose install` only copy files to disk. Chrome does not pick them up until you load each extension once, in each Chrome profile where you want it:
+`tabgroups install` and `tabclose install` copy each extension into a folder that Homebrew keeps current: every `brew upgrade` replaces the files there and keeps your config. Chrome does not pick a folder up until you load each extension once, in each Chrome profile where you want it:
 
 1. Open Chrome with that profile active
 2. Go to `chrome://extensions`
@@ -47,14 +47,27 @@ tabclose sync            # validate + push config changes to the extension
 
 | Extension | Folder to load |
 |---|---|
-| Tab Auto Grouper | `~/Library/Application Support/chrome-tab-grouper/extension` (note: `chrome-tab-grouper`, not the formula name `tab-auto-grouper`) |
-| Auto Tab Closer | `~/Library/Application Support/auto-tab-closer/extension` |
+| Tab Auto Grouper | `/opt/homebrew/var/tab-auto-grouper/extension` |
+| Auto Tab Closer | `/opt/homebrew/var/auto-tab-closer/extension` |
 
-Each extension is loaded separately: loading Tab Auto Grouper does not add Auto Tab Closer. `~/Library` is hidden in the macOS file picker, which is why Cmd+Shift+G is the easy way in. `tabgroups status` / `tabclose status` print the same folder.
+(`/opt/homebrew` is `$(brew --prefix)` on Apple silicon; Intel Macs use `/usr/local`.)
+
+Each extension is loaded separately: loading Tab Auto Grouper does not add Auto Tab Closer. `/opt` is hidden in the macOS file picker, which is why Cmd+Shift+G is the easy way in. `tabgroups status` / `tabclose status` print the same folder.
 
 **Extension missing from `chrome://extensions`?** It was never loaded in that profile (or was removed). Repeat step 4 with its folder. If the card appears but is greyed out or shows an error, check `chrome://policy`: a managed (work) profile can restrict extensions.
 
-Set `NO_BROWSER=1` to stop the CLIs from opening Chrome windows (CI does this automatically). Chrome remembers the extension across restarts. After a `brew upgrade`, run the install command again. From v1.2.1 each extension notices its files were replaced and reloads itself within a few seconds of its next tab event; if a popup ever shows **Reload extension**, click it. Upgrading from 1.2.0 or older needs one manual click on the **↺ reload** icon in `chrome://extensions`. `status` and `sync` warn you when the installed extension is older than the one the CLI ships.
+Set `NO_BROWSER=1` to stop the CLIs from opening Chrome windows (CI does this automatically). Chrome remembers the extension across restarts. After that, `brew upgrade` is all an upgrade needs: it refreshes the folder and the extension reloads itself within a few seconds of its next tab event. If a popup ever shows **Reload extension**, click it. `status` and `sync` warn you when the installed extension is older than the one the CLI ships.
+
+**Moving from the old `~/Library` folder (installs before tab-auto-grouper 1.3.0 / auto-tab-closer 1.4.0).** Earlier versions loaded the extensions from `~/Library/Application Support/chrome-tab-grouper/extension` and `~/Library/Application Support/auto-tab-closer/extension`, which `brew upgrade` cannot reach. Move each profile once:
+
+1. `brew upgrade tab-auto-grouper auto-tab-closer`, then `tabgroups install` and `tabclose install` (they print these steps too).
+2. In `chrome://extensions`, **Remove** the old card for each extension, then **Load unpacked** the new folder from the table above.
+3. Auto Tab Closer only: turn **Allow in Incognito** back on if you use it.
+4. When every profile is done: `tabgroups remove --legacy` and `tabclose remove --legacy`.
+
+Chrome treats a different folder as a different extension, so what the old one kept in extension storage does not carry over: rules and watched links added from the popups, and Recently closed. Rules in your config files are unaffected.
+
+`brew uninstall` leaves `$(brew --prefix)/var/<formula>/` in place, and Chrome keeps loading it. Run `tabgroups remove` / `tabclose remove` first, then remove the card in `chrome://extensions`.
 
 ---
 
@@ -70,6 +83,8 @@ Set `NO_BROWSER=1` to stop the CLIs from opening Chrome windows (CI does this au
 | `tabgroups validate` | Check `config.yaml` without writing anything |
 | `tabgroups config` | Open `config.yaml` in `$EDITOR` |
 | `tabgroups remove` | Remove the installed extension files |
+| `tabgroups remove --legacy` | Remove only the old copy in `~/Library/Application Support` |
+| `tabgroups refresh` | Update the extension files and keep the installed config (`brew upgrade` runs this) |
 | `tabgroups list-profiles` | List Chrome profiles on this machine |
 | `tabgroups status` | Show paths, versions, and installation status |
 
@@ -132,7 +147,7 @@ Leading `www.` is stripped automatically on both sides.
          │
          │  tabgroups sync   (validates first)
          ▼
-~/Library/Application Support/chrome-tab-grouper/extension/config.json
+$(brew --prefix)/var/tab-auto-grouper/extension/config.json
          │
          │  picked up on the next tab navigation, or instantly via "Reload Config"
          ▼
@@ -158,6 +173,8 @@ Leading `www.` is stripped automatically on both sides.
 | `tabclose config` | Open `config.json` in `$EDITOR` |
 | `tabclose config --merge-defaults` | Append login-page patterns added in newer releases to your config |
 | `tabclose remove` | Remove the installed extension files |
+| `tabclose remove --legacy` | Remove only the old copy in `~/Library/Application Support` |
+| `tabclose refresh` | Update the extension files and keep the installed config (`brew upgrade` runs this) |
 | `tabclose list-profiles` | List Chrome profiles on this machine |
 | `tabclose status` | Show paths, versions, and installation status |
 
@@ -246,11 +263,11 @@ The popup marks incognito tabs in the pending list. Two things to know:
 |---|---|
 | `~/.config/tab-auto-grouper/config.yaml` | **Never touched** |
 | `~/.config/auto-tab-closer/config.json` | **Never touched** |
-| `~/Library/Application Support/chrome-tab-grouper/` | **Never touched** |
-| `~/Library/Application Support/auto-tab-closer/` | **Never touched** |
+| `$(brew --prefix)/var/tab-auto-grouper/extension/` | Files replaced, `config.json` kept |
+| `$(brew --prefix)/var/auto-tab-closer/extension/` | Files replaced, `config.json` kept |
 | Rules and watched links added from the popups | **Never touched** (extension storage) |
 
-After upgrading either extension, run `tabgroups install` / `tabclose install` to refresh the extension files. From v1.2.1 the extensions reload themselves; see [One-time Chrome setup](#one-time-chrome-setup-per-profile) for the first load and for upgrading from 1.2.0 or older.
+The extensions reload themselves after the upgrade. New default rules in a release do not land in your config on their own: `tabclose config --merge-defaults` adds the closer's. See [One-time Chrome setup](#one-time-chrome-setup-per-profile) for the first load and for moving from the old `~/Library` folder.
 
 ---
 

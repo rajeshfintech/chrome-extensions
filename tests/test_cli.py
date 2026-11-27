@@ -1,6 +1,10 @@
 """Run with:  python3 -m unittest discover -s tests"""
 import importlib.util
 import json
+import os
+import subprocess
+import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -93,8 +97,76 @@ class CloserConfigValidation(unittest.TestCase):
         self.assertEqual([p['name'] for p in missing], [p['name'] for p in defaults[-2:]])
 
 
+class RefreshKeepsConfig(unittest.TestCase):
+    """`refresh` (run by brew upgrade) swaps the code and keeps the installed config.json."""
+
+    def run_cli(self, cli, home, *args, user_home=None):
+        env = {**os.environ, 'TABCLOSE_HOME': str(home), 'TABGROUPS_HOME': str(home), 'NO_BROWSER': '1'}
+        if user_home:
+            env['HOME'] = str(user_home)
+        return subprocess.run([sys.executable, '-I', str(cli), *args], env=env,
+                              capture_output=True, text=True, check=True).stdout
+
+    def check(self, name):
+        cli = ROOT / name / 'cli.py'
+        bundled = (ROOT / name / 'extension' / 'config.json').read_bytes()
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp) / 'var'
+            ext = home / 'extension'
+            out = self.run_cli(cli, home, 'refresh')
+            self.assertIn('bundled config', out)
+            self.assertEqual((ext / 'config.json').read_bytes(), bundled)
+
+            (ext / 'config.json').write_text('{"mine": true}\n')
+            (ext / 'stale.js').write_text('old file')
+            self.run_cli(cli, home, 'refresh')
+            self.assertEqual((ext / 'config.json').read_text(), '{"mine": true}\n')
+            self.assertFalse((ext / 'stale.js').exists(), 'files dropped from a release must go')
+            self.assertEqual(json.loads((ext / 'manifest.json').read_text())['version'],
+                             json.loads((ROOT / name / 'extension' / 'manifest.json').read_text())['version'])
+            self.assertEqual(sorted(p.name for p in home.iterdir()), ['extension'])
+
+    def check_recovers_interrupted_swap(self, name):
+        cli = ROOT / name / 'cli.py'
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp) / 'var'
+            (home / 'extension.old').mkdir(parents=True)
+            (home / 'extension.old' / 'config.json').write_text('{"mine": true}\n')
+            self.run_cli(cli, home, 'refresh')
+            self.assertEqual((home / 'extension' / 'config.json').read_text(), '{"mine": true}\n')
+
+    def check_legacy_and_remove(self, name, legacy_name):
+        cli = ROOT / name / 'cli.py'
+        with tempfile.TemporaryDirectory() as tmp:
+            user_home = Path(tmp) / 'home'
+            legacy = user_home / 'Library' / 'Application Support' / legacy_name
+            (legacy / 'extension').mkdir(parents=True)
+            home = Path(tmp) / 'var'
+            self.run_cli(cli, home, 'refresh', user_home=user_home)
+            self.assertIn('Old copy still at', self.run_cli(cli, home, 'status', user_home=user_home))
+
+            (home / 'keep-me.txt').write_text('not ours')
+            self.run_cli(cli, home, 'remove', user_home=user_home)
+            self.assertEqual(sorted(p.name for p in home.iterdir()), ['keep-me.txt'],
+                             'remove must only delete the folders it creates')
+            self.assertTrue(legacy.exists(), 'plain remove must not touch the old copy')
+
+            self.run_cli(cli, home, 'remove', '--legacy', user_home=user_home)
+            self.assertFalse(legacy.exists())
+            self.assertIn('No old copy', self.run_cli(cli, home, 'remove', '--legacy', user_home=user_home))
+
+    def test_closer(self):
+        self.check('auto-tab-closer')
+        self.check_recovers_interrupted_swap('auto-tab-closer')
+        self.check_legacy_and_remove('auto-tab-closer', 'auto-tab-closer')
+
+    def test_grouper(self):
+        self.check('tab-auto-grouper')
+        self.check_recovers_interrupted_swap('tab-auto-grouper')
+        self.check_legacy_and_remove('tab-auto-grouper', 'chrome-tab-grouper')
+
+
 if __name__ == '__main__':
-    import sys
     if '--regen' in sys.argv:
         yaml = grouper.require_yaml()
         config = yaml.safe_load((ROOT / 'tab-auto-grouper' / 'config.yaml').read_text())
