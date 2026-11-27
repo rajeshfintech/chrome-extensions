@@ -229,7 +229,7 @@ Chrome restarts the extension when you flip it. Repeat in each profile where you
 - An incognito tab that gets closed is **not** added to **Recently closed**.
 - Its warning notification says "Incognito tab" instead of the page title, because macOS keeps notification text in Notification Center.
 
-The popup marks incognito tabs in the pending list. Tab Auto Grouper does not run in incognito.
+The popup marks incognito tabs in the pending list.
 
 ### Permissions
 
