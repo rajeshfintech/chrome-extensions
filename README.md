@@ -67,6 +67,8 @@ Set `NO_BROWSER=1` to stop the CLIs from opening Chrome windows (CI does this au
 
 Chrome treats a different folder as a different extension, so what the old one kept in extension storage does not carry over: rules and watched links added from the popups, and Recently closed. Rules in your config files are unaffected.
 
+`brew uninstall` leaves `$(brew --prefix)/var/<formula>/` in place, and Chrome keeps loading it. Run `tabgroups remove` / `tabclose remove` first, then remove the card in `chrome://extensions`.
+
 ---
 
 ## tab-auto-grouper — details

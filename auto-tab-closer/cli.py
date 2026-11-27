@@ -45,7 +45,8 @@ USER_CONFIG_JSON   = USER_CONFIG_DIR / 'config.json'
 # post_install refreshes on every `brew upgrade` (see cmd_refresh). Without it
 # (running from a checkout) the folder is the original one in ~/Library.
 LEGACY_INSTALL_PATH = Path.home() / 'Library' / 'Application Support' / 'auto-tab-closer'
-INSTALL_PATH       = Path(os.environ['TABCLOSE_HOME']) if os.environ.get('TABCLOSE_HOME') else LEGACY_INSTALL_PATH
+INSTALL_PATH       = (Path(os.environ['TABCLOSE_HOME']).expanduser().resolve() if os.environ.get('TABCLOSE_HOME')
+                      else LEGACY_INSTALL_PATH)
 INSTALLED_EXT      = INSTALL_PATH / 'extension'
 INSTALLED_CONFIG   = INSTALLED_EXT / 'config.json'
 
@@ -309,8 +310,15 @@ def cmd_refresh(_args):
     must touch nothing outside INSTALL_PATH: the config the last `install` or
     `sync` wrote is carried over, and a first install gets the bundled default.
     """
-    previous = INSTALLED_CONFIG.read_bytes() if INSTALLED_CONFIG.exists() else None
-    install_extension_atomically(lambda dest: previous is not None and dest.write_bytes(previous))
+    # extension.old holds the config if an earlier swap died between its two renames.
+    sources = (INSTALLED_CONFIG, INSTALL_PATH / 'extension.old' / 'config.json')
+    previous = next((f.read_bytes() for f in sources if f.exists()), None)
+
+    def keep_config(dest):
+        if previous is not None:
+            dest.write_bytes(previous)
+
+    install_extension_atomically(keep_config)
     ok(f'Extension v{read_version(INSTALLED_EXT)} refreshed at {INSTALLED_EXT}'
        + ('' if previous is not None else '  (bundled config; run: tabclose install)'))
 
@@ -333,17 +341,31 @@ def print_legacy_migration():
 """)
 
 
+def remove_install(base):
+    """Delete only the folders this CLI creates under `base`, then `base` if empty.
+
+    `base` can come from an environment variable, so never rmtree it wholesale.
+    """
+    managed = [base / d for d in ('extension', 'extension.new', 'extension.old')]
+    present = [d for d in managed if d.exists()]
+    for d in present:
+        shutil.rmtree(d)
+    try:
+        base.rmdir()
+    except OSError:
+        pass   # missing, or holds files that are not ours
+    return bool(present)
+
+
 def cmd_remove(args):
     if args.legacy:
-        if INSTALL_PATH != LEGACY_INSTALL_PATH and LEGACY_INSTALL_PATH.exists():
-            shutil.rmtree(LEGACY_INSTALL_PATH)
+        if INSTALL_PATH != LEGACY_INSTALL_PATH and remove_install(LEGACY_INSTALL_PATH):
             ok(f'Removed {LEGACY_INSTALL_PATH}')
         else:
             info('No old copy to remove.')
         return
-    if INSTALL_PATH.exists():
-        shutil.rmtree(INSTALL_PATH)
-        ok(f'Removed {INSTALL_PATH}')
+    if remove_install(INSTALL_PATH):
+        ok(f'Removed {INSTALLED_EXT}')
     else:
         info('Nothing to remove (not installed).')
     print()
@@ -441,6 +463,10 @@ def cmd_validate(_args):
 
 def cmd_sync(_args):
     ensure_user_config()
+    if legacy_copy_in_use():
+        err(f'Chrome may still load the old copy in {LEGACY_INSTALL_PATH}: this sync does not reach it.')
+        info('Run:  tabclose install   for the one-time move steps')
+        print()
     if not INSTALLED_EXT.exists():
         err('Extension not installed yet. Run:  tabclose install')
         sys.exit(1)
