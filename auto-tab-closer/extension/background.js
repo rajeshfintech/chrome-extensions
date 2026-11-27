@@ -65,16 +65,21 @@ async function isPaused() {
 // Stored state. Every read-modify-write of a storage key goes through
 // withStorage(), which serialises updates so concurrent tab events cannot
 // clobber each other's writes.
+//
+// `pending` lives in storage.session: it is kept in memory only, so URLs and
+// titles of tabs on a timer (incognito ones included) never reach disk, and it
+// empties itself when the browser quits, which is when tab IDs stop meaning
+// anything. Everything else stays in storage.local.
 // ---------------------------------------------------------------------------
 
 let storageLock = Promise.resolve();
 
-function withStorage(key, initial, fn) {
+function withStorage(key, initial, fn, area = chrome.storage.local) {
   const run = storageLock.then(async () => {
-    const stored = await chrome.storage.local.get(key);
+    const stored = await area.get(key);
     const value = stored[key] ?? initial;
     const result = await fn(value);
-    await chrome.storage.local.set({ [key]: value });
+    await area.set({ [key]: value });
     return result;
   });
   storageLock = run.catch(() => {});
@@ -86,13 +91,13 @@ async function withPending(fn) {
   const result = await withStorage('pending', {}, async (pending) => {
     pendingSnapshot = pending;
     return fn(pending);
-  });
+  }, chrome.storage.session);
   await updateBadge(pendingSnapshot);
   return result;
 }
 
 async function getPending() {
-  const { pending = {} } = await chrome.storage.local.get('pending');
+  const { pending = {} } = await chrome.storage.session.get('pending');
   return pending;
 }
 
@@ -115,7 +120,7 @@ async function armAlarms(tabId, idleMin, warnMin) {
   chrome.notifications.clear(WARN_PREFIX + tabId);
 }
 
-async function scheduleClose(tabId, pattern, url, title) {
+async function scheduleClose(tabId, pattern, url, title, incognito = false) {
   if (await isPaused()) return;
   const config = await loadConfig();
   const idleMin = minutesFor(pattern, config);
@@ -127,6 +132,7 @@ async function scheduleClose(tabId, pattern, url, title) {
       name: pattern.name || ruleKey(pattern).split(':')[1],
       title: title || url,
       url,
+      incognito,
       idleMin,
       closeAt: Date.now() + idleMin * 60_000
     };
@@ -174,7 +180,7 @@ async function rescanTabs() {
     if (!tab.id || !isWatchableUrl(tab.url)) continue;
     const match = matchPattern(tab.url, tab.title, patterns);
     if (match && !pending[tab.id]) {
-      await scheduleClose(tab.id, match, tab.url, tab.title);
+      await scheduleClose(tab.id, match, tab.url, tab.title, tab.incognito);
     } else if (!match && pending[tab.id]) {
       await cancelClose(tab.id, 'no longer matches any pattern');
     }
@@ -227,7 +233,7 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
   }
   // Already on the timer for this URL: a reload or SPA tick must not reset it.
   if (current && current.url === tab.url) return;
-  await scheduleClose(tabId, match, tab.url, tab.title);
+  await scheduleClose(tabId, match, tab.url, tab.title, tab.incognito);
 });
 
 chrome.tabs.onActivated.addListener(({ tabId }) => resetTimer(tabId, 'user activated'));
@@ -248,7 +254,8 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
       type: 'basic',
       iconUrl: chrome.runtime.getURL('icons/icon128.png'),
       title: `Closing in ${minutes} min: ${info.name}`,
-      message: info.title || info.url,
+      // macOS keeps notification text in Notification Center: no incognito titles there.
+      message: info.incognito ? 'Incognito tab' : (info.title || info.url),
       buttons: [{ title: 'Keep open' }],
       priority: 0
     });
@@ -274,7 +281,8 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
   console.log(`[AutoClose] Closing tab ${tabId} (${info.name})`);
   try {
     await chrome.tabs.remove(tabId);
-    await recordClosed(info);
+    // Like Chrome's own history, incognito tabs leave no trace in Recently closed.
+    if (!info.incognito) await recordClosed(info);
   } catch (err) {
     console.warn(`[AutoClose] Could not close tab ${tabId}:`, err.message);
   }
@@ -310,6 +318,7 @@ async function resetSession() {
     .filter(a => a.name.startsWith(CLOSE_PREFIX) || a.name.startsWith(WARN_PREFIX))
     .map(a => chrome.alarms.clear(a.name)));
   await withPending((pending) => { for (const k of Object.keys(pending)) delete pending[k]; });
+  await chrome.storage.local.remove('pending');   // written to disk by <= 1.2.1
   await rescanTabs();
 }
 
@@ -366,7 +375,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
         const patterns = await getAllPatterns();
         for (const [id, info] of Object.entries(pending)) {
           const match = matchPattern(info.url, info.title, patterns);
-          if (match) await scheduleClose(Number(id), match, info.url, info.title);
+          if (match) await scheduleClose(Number(id), match, info.url, info.title, info.incognito);
           else await cancelClose(Number(id), 'no longer matches after reload');
         }
         await rescanTabs();

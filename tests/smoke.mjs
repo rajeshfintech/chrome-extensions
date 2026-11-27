@@ -166,6 +166,10 @@ try {
   const after = await msg(cpop, { type: 'get_state' });
   check('navigating away cancels the timer', !after.pending[loginTabId]);
 
+  // Pending state is in memory only (storage.session), never on disk.
+  const onDisk = await closer.evaluate(`chrome.storage.local.get('pending')`);
+  check('pending is not written to storage.local', !('pending' in onDisk), JSON.stringify(Object.keys(onDisk)));
+
   // Popup DOM rendered? (reload so the grouper popup picks up the manual rule added above)
   await gpop.evaluate('location.reload()');
   await sleep(1500);
@@ -177,6 +181,70 @@ try {
     const errs = c.events.filter(e => e.method === 'Runtime.exceptionThrown' || (e.method === 'Runtime.consoleAPICalled' && e.params.type === 'error'));
     check(`${name} popup: no runtime errors`, errs.length === 0, JSON.stringify(errs.slice(0, 3)));
   }
+
+  // Incognito: flip "Allow in Incognito" the way a user would, from chrome://extensions
+  // (developerPrivate is only exposed there). Chrome restarts the extension, so
+  // reconnect to its new worker, then open a login page in an incognito window.
+  const ver = await (await fetch(`http://127.0.0.1:${port}/json/version`)).json();
+  const browser = await connect(ver.webSocketDebuggerUrl);
+  const extPage = await browser.call('Target.createTarget', { url: 'chrome://extensions/' });
+  await sleep(1500);
+  const extTarget = (await targets()).find(t => t.id === extPage.result.targetId);
+  const ext = await connect(extTarget.webSocketDebuggerUrl);
+  const extIds = await ext.evaluate(`new Promise(r => chrome.developerPrivate.getExtensionsInfo(l => r(l.filter(e => e.name === 'Auto Tab Closer').map(e => e.id))))`);
+  // Unpacked extensions only survive the restart with Developer mode on, as on a real setup.
+  await ext.evaluate(`new Promise(r => chrome.developerPrivate.updateProfileConfiguration({ inDeveloperMode: true }, r))`);
+  const cfgErr = await ext.evaluate(`new Promise(r => chrome.developerPrivate.updateExtensionConfiguration({ extensionId: ${JSON.stringify(extIds[0])}, incognitoAccess: true }, () => r(chrome.runtime.lastError?.message || '')))`);
+  check('Allow in Incognito switched on', cfgErr === '', cfgErr);
+  await sleep(2000);   // let the extension finish restarting
+  // The restarted worker stays asleep until something wakes it: send it a message.
+  // The page can load while the extension is still restarting, so retry.
+  const wake = await browser.call('Target.createTarget', { url: `chrome-extension://${extIds[0]}/popup.html` });
+  await sleep(1000);
+  const wakePage = await connect((await targets()).find(t => t.id === wake.result.targetId).webSocketDebuggerUrl);
+  await wakePage.call('Runtime.enable');
+  for (let i = 0; i < 10; i++) {
+    if (await wakePage.evaluate('typeof chrome.runtime?.sendMessage') === 'function') break;
+    await wakePage.evaluate('location.reload()');
+    await sleep(500);
+  }
+  await msg(wakePage, { type: 'get_state' });
+  wakePage.close();
+  ext.close();
+  browser.close();
+  closer.close();
+  let closer2;
+  for (let i = 0; i < 40 && !closer2; i++) {
+    await sleep(250);
+    const t = (await targets()).find(t => t.type === 'service_worker' && t.url === `chrome-extension://${extIds[0]}/background.js`);
+    if (!t) continue;
+    try {
+      const c = await connect(t.webSocketDebuggerUrl);
+      await c.call('Runtime.enable');
+      if (await c.evaluate('chrome.runtime.getManifest().name') === 'Auto Tab Closer') closer2 = c; else c.close();
+    } catch { /* not ready */ }
+  }
+  check('closer worker back after enabling incognito', !!closer2, extIds.join(','));
+  const allowed = await closer2.evaluate(`chrome.extension.isAllowedIncognitoAccess()`);
+  check('closer allowed in incognito', allowed === true);
+  const win = await closer2.evaluate(`chrome.windows.create({ incognito: true, url: 'https://github.com/login' }).then(w => ({ id: w.id, incognito: w.incognito }))`);
+  await sleep(3000);
+  const incPending = Object.values((await closer2.evaluate(`chrome.storage.session.get('pending')`)).pending || {}).filter(p => p.incognito);
+  check('incognito login tab is pending closure', win.incognito && incPending.some(p => hostOf(p.url) === 'github.com'), JSON.stringify(incPending.map(p => [p.name, p.incognito])));
+  // Close it via the alarm path and check it leaves no trace in Recently closed.
+  // A focused, active tab is never closed, so put another tab in front first.
+  const incTab = (await closer2.evaluate(`chrome.tabs.query({ windowId: ${win.id} })`)).find(tb => hostOf(tb.url) === 'github.com');
+  await closer2.evaluate(`chrome.tabs.create({ windowId: ${win.id}, url: 'https://example.com/', active: true })`);
+  await sleep(500);
+  await closer2.evaluate(`chrome.storage.local.set({ recentlyClosed: [] })`);
+  await closer2.evaluate(`chrome.alarms.create('close-tab-${incTab.id}', { when: Date.now() + 100 })`);
+  await sleep(2000);
+  const gone = await closer2.evaluate(`chrome.tabs.get(${incTab.id}).then(() => false, () => true)`);
+  const { recentlyClosed = [] } = await closer2.evaluate(`chrome.storage.local.get('recentlyClosed')`);
+  check('incognito tab closed on its alarm', gone);
+  check('incognito close not recorded in Recently closed', gone && recentlyClosed.length === 0, JSON.stringify(recentlyClosed.map(r => r.name)));
+  const incErrs = closer2.events.filter(e => e.method === 'Runtime.exceptionThrown' || (e.method === 'Runtime.consoleAPICalled' && e.params.type === 'error'));
+  check('Auto Tab Closer (incognito run): no runtime errors', incErrs.length === 0, JSON.stringify(incErrs.slice(0, 3)));
 
   // Console errors from either worker?
   for (const [name, c] of Object.entries(byName)) {
