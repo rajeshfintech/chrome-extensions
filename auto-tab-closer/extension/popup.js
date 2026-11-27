@@ -68,7 +68,7 @@ function renderTabs() {
     return `
       <div class="tab-item">
         <div class="tab-info">
-          <div class="tab-site">${esc(info.name)}</div>
+          <div class="tab-site">${esc(info.name)}${info.incognito ? ' <span class="tab-incognito">incognito</span>' : ''}</div>
           <div class="tab-title">${esc(truncate(info.title || info.url))}</div>
         </div>
         <span class="tab-countdown${urgent}" data-close-at="${info.closeAt}">closes in ${fmtCountdown(info.closeAt)}</span>

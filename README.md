@@ -203,7 +203,7 @@ Tab navigates to a login page
          │
          │ no
          ▼
-      Tab is closed and added to "Recently closed"
+      Tab is closed and added to "Recently closed" (incognito tabs are not)
 ```
 
 Every browser start wipes stale timers and rescans open tabs, because Chrome reuses tab IDs across sessions.
@@ -215,6 +215,24 @@ Every browser start wipes stale timers and rescans open tabs, because Chrome reu
 - **Reload Config** re-reads config, re-arms pending timers with the new `idle_minutes`, and rescans.
 - **Watched links**: **+ Watch current tab** adds a `path` rule for the active tab; **Add** takes any URL substring (e.g. `example.com/dashboard`). These live in `chrome.storage.local` and survive `sync` and upgrades.
 - **Recently closed**: the last 20 tabs it closed, with **Reopen**.
+
+### Incognito windows
+
+Chrome keeps every extension out of incognito until you allow it, and that switch can only be flipped by hand (the CLI cannot set it):
+
+1. `chrome://extensions` → **Auto Tab Closer** → **Details**
+2. Turn on **Allow in Incognito**
+
+Chrome restarts the extension when you flip it. Repeat in each profile where you want it; the switch survives `brew upgrade` and `sync`. Incognito tabs then get the same rules and timers as normal tabs, with three differences so nothing about them outlives the window:
+
+- Timers for every tab are kept in memory only (`chrome.storage.session`), so URLs on a countdown are never written to disk. They clear when Chrome quits.
+- An incognito tab that gets closed is **not** added to **Recently closed**.
+- Its warning notification says "Incognito tab" instead of the page title, because macOS keeps notification text in Notification Center.
+
+The popup marks incognito tabs in the pending list. Two things to know:
+
+- The popup is shared between normal and incognito windows, so pending incognito tabs are listed in a normal window's popup too (and the other way round).
+- **+ Watch current tab** in an incognito window saves that site as a rule in `chrome.storage.local`, like any other watched link. Use it there only for sites you are happy to keep in the rule list.
 
 ### Permissions
 
